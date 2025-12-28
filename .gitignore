@@ -38,3 +38,6 @@ obj/
 # OS
 .DS_Store
 Thumbs.db
+
+# Added by eck-snapshot to ignore metadata directory
+.eck/
