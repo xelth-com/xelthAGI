@@ -5,8 +5,9 @@ namespace SupportAgent;
 
 class Program
 {
-    private const string DEFAULT_SERVER_URL = "http://localhost:5000";
+    private const string DEFAULT_SERVER_URL = "https://xelth.com/agi";
     private static readonly List<string> _actionHistory = new();
+    private static string _clientId = "";
 
     static async Task<int> Main(string[] args)
     {
@@ -14,8 +15,14 @@ class Program
         Console.WriteLine("║   Support Agent - C# + FlaUI Client       ║");
         Console.WriteLine("╚════════════════════════════════════════════╝\n");
 
+        // Получаем или генерируем уникальный Client ID
+        _clientId = GetOrCreateClientId();
+        Console.WriteLine($"Client ID: {_clientId}");
+        Console.WriteLine();
+
         // Параметры
-        var serverUrl = GetArgument(args, "--server", DEFAULT_SERVER_URL);
+        var defaultServerUrl = LoadServerConfigFromFile() ?? DEFAULT_SERVER_URL;
+        var serverUrl = GetArgument(args, "--server", defaultServerUrl);
         var targetApp = GetArgument(args, "--app", "");
         var task = GetArgument(args, "--task", "");
 
@@ -36,7 +43,7 @@ class Program
 
         // Инициализация сервисов
         using var automationService = new UIAutomationService();
-        var serverService = new ServerCommunicationService(serverUrl);
+        var serverService = new ServerCommunicationService(serverUrl, _clientId);
 
         // Проверка сервера
         Console.WriteLine($"Connecting to server: {serverUrl}");
@@ -51,6 +58,28 @@ class Program
         // Поиск окна приложения
         Console.WriteLine($"Looking for window: {targetApp}");
         var window = automationService.FindWindow(targetApp);
+
+        // Если не нашли, пытаемся запустить Notepad автоматически
+        if (window == null && targetApp.Contains("Notepad", StringComparison.OrdinalIgnoreCase))
+        {
+            Console.WriteLine($"⚠️  Window not found. Launching Notepad...");
+            try
+            {
+                System.Diagnostics.Process.Start("notepad.exe");
+                await Task.Delay(2000); // Ждем 2 секунды
+
+                window = automationService.FindWindow(targetApp);
+                if (window != null)
+                {
+                    Console.WriteLine($"✅ Notepad launched successfully!");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"⚠️  Failed to launch Notepad: {ex.Message}");
+            }
+        }
+
         if (window == null)
         {
             Console.WriteLine($"❌ Window '{targetApp}' not found!");
@@ -157,5 +186,75 @@ class Program
             return args[index + 1];
         }
         return defaultValue;
+    }
+
+    private static string? LoadServerConfigFromFile()
+    {
+        var configPaths = new[]
+        {
+            "config/server.txt",
+            "../config/server.txt",
+            "server.txt"
+        };
+
+        foreach (var path in configPaths)
+        {
+            try
+            {
+                if (File.Exists(path))
+                {
+                    var lines = File.ReadAllLines(path);
+                    foreach (var line in lines)
+                    {
+                        var trimmed = line.Trim();
+                        // Пропускаем комментарии и пустые строки
+                        if (!string.IsNullOrEmpty(trimmed) && !trimmed.StartsWith("#"))
+                        {
+                            return trimmed;
+                        }
+                    }
+                }
+            }
+            catch
+            {
+                // Игнорируем ошибки чтения файла
+            }
+        }
+
+        return null;
+    }
+
+    private static string GetOrCreateClientId()
+    {
+        try
+        {
+            // Путь к файлу с ID в AppData
+            var appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            var clientIdDir = Path.Combine(appDataPath, "XelthAGI");
+            var clientIdFile = Path.Combine(clientIdDir, "client-id.txt");
+
+            // Создаем директорию если не существует
+            Directory.CreateDirectory(clientIdDir);
+
+            // Читаем существующий ID или создаем новый
+            if (File.Exists(clientIdFile))
+            {
+                var existingId = File.ReadAllText(clientIdFile).Trim();
+                if (!string.IsNullOrEmpty(existingId))
+                {
+                    return existingId;
+                }
+            }
+
+            // Генерируем новый уникальный ID
+            var newId = Guid.NewGuid().ToString("N"); // без дефисов, короче
+            File.WriteAllText(clientIdFile, newId);
+            return newId;
+        }
+        catch
+        {
+            // Если не можем сохранить, генерируем временный ID
+            return Guid.NewGuid().ToString("N");
+        }
     }
 }

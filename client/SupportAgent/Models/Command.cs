@@ -13,6 +13,7 @@ public class Command
 
 public class ServerRequest
 {
+    public string ClientId { get; set; } = string.Empty;
     public UIState State { get; set; } = new();
     public string Task { get; set; } = string.Empty;
     public List<string> History { get; set; } = new();

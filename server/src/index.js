@@ -33,6 +33,7 @@ const UIStateSchema = z.object({
 });
 
 const ServerRequestSchema = z.object({
+    ClientId: z.string().optional().default("unknown"),
     State: UIStateSchema,
     Task: z.string(),
     History: z.array(z.string()).optional().default([])
@@ -63,6 +64,9 @@ app.post('/decide', async (req, res) => {
         }
 
         const request = parseResult.data;
+
+        // Log Client ID
+        console.log(`\n👤 Client: ${request.ClientId} | Task: ${request.Task}`);
 
         // 2. LLM Processing
         // Convert Zod object to plain dict logic for LLM service

@@ -8,10 +8,12 @@ public class ServerCommunicationService
 {
     private readonly HttpClient _httpClient;
     private readonly string _serverUrl;
+    private readonly string _clientId;
 
-    public ServerCommunicationService(string serverUrl)
+    public ServerCommunicationService(string serverUrl, string clientId)
     {
         _serverUrl = serverUrl;
+        _clientId = clientId;
         _httpClient = new HttpClient
         {
             Timeout = TimeSpan.FromSeconds(30)
@@ -27,6 +29,7 @@ public class ServerCommunicationService
         {
             var request = new ServerRequest
             {
+                ClientId = _clientId,
                 State = state,
                 Task = task,
                 History = history

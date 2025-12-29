@@ -120,9 +120,13 @@ Respond with JSON only, no additional text.`;
             try {
                 const result = await this.gemini.models.generateContent({
                     model: modelConfig.name,
-                    systemInstruction: "You are a UI automation agent. Always respond with valid JSON only, no additional text.",
                     contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                    generationConfig: {
+                    config: {
+                        systemInstruction: [
+                            "You are a UI automation agent.",
+                            "Always respond with valid JSON only, no additional text.",
+                            "Do not include markdown code blocks or any formatting - return raw JSON."
+                        ],
                         temperature: modelConfig.temperature,
                         maxOutputTokens: 2048
                     }

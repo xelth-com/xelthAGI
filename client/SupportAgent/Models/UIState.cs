@@ -15,7 +15,7 @@ public class UIElement
     public string Type { get; set; } = string.Empty;
     public string Value { get; set; } = string.Empty;
     public bool IsEnabled { get; set; }
-    public Rectangle Bounds { get; set; }
+    public Rectangle Bounds { get; set; } = new();
 }
 
 public class Rectangle
