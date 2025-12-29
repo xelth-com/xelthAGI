@@ -44,9 +44,10 @@ echo ""
 # Ask deployment method
 echo "Select deployment method:"
 echo "1) PM2 (recommended for production)"
-echo "2) Systemd service"
-echo "3) Manual (npm start)"
-read -p "Choice (1-3): " choice
+echo "2) PM2 with ecosystem.config.js (for xelth.com server)"
+echo "3) Systemd service"
+echo "4) Manual (npm start)"
+read -p "Choice (1-4): " choice
 
 case $choice in
     1)
@@ -60,10 +61,10 @@ case $choice in
         fi
 
         # Stop existing instance
-        pm2 delete xelth-agi 2>/dev/null || true
+        pm2 delete xelthAGI 2>/dev/null || true
 
         # Start with PM2
-        pm2 start src/index.js --name xelth-agi
+        pm2 start src/index.js --name xelthAGI
         pm2 save
 
         echo ""
@@ -71,9 +72,9 @@ case $choice in
         echo ""
         echo "Commands:"
         echo "  pm2 status          - View status"
-        echo "  pm2 logs xelth-agi  - View logs"
-        echo "  pm2 restart xelth-agi - Restart server"
-        echo "  pm2 stop xelth-agi    - Stop server"
+        echo "  pm2 logs xelthAGI  - View logs"
+        echo "  pm2 restart xelthAGI - Restart server"
+        echo "  pm2 stop xelthAGI    - Stop server"
         echo ""
 
         # Setup startup script
@@ -86,6 +87,48 @@ case $choice in
         ;;
 
     2)
+        echo ""
+        echo "📦 Setting up PM2 with ecosystem.config.js..."
+
+        # Check if ecosystem.config.js exists in /var/www
+        ECOSYSTEM_FILE="/var/www/ecosystem.config.js"
+
+        if [ ! -f "$ECOSYSTEM_FILE" ]; then
+            echo "❌ Error: $ECOSYSTEM_FILE not found!"
+            echo ""
+            echo "This option is for servers with existing ecosystem.config.js"
+            echo "Use option 1 for standalone PM2 deployment."
+            exit 1
+        fi
+
+        # Install PM2 if not present
+        if ! command -v pm2 &> /dev/null; then
+            echo "Installing PM2 globally..."
+            sudo npm install -g pm2
+        fi
+
+        # Stop existing instance
+        pm2 delete xelthAGI 2>/dev/null || true
+
+        # Start with ecosystem config
+        cd /var/www
+        pm2 start ecosystem.config.js --only xelthAGI
+        pm2 save
+
+        echo ""
+        echo "✅ Server started with PM2 (ecosystem.config.js)!"
+        echo ""
+        echo "Commands:"
+        echo "  pm2 status          - View status"
+        echo "  pm2 logs xelthAGI   - View logs"
+        echo "  pm2 restart xelthAGI - Restart server"
+        echo "  pm2 stop xelthAGI    - Stop server"
+        echo ""
+        echo "Configuration: /var/www/ecosystem.config.js"
+        echo ""
+        ;;
+
+    3)
         echo ""
         echo "📝 Creating systemd service..."
 
@@ -131,7 +174,7 @@ EOF
         sudo systemctl status xelth-agi --no-pager
         ;;
 
-    3)
+    4)
         echo ""
         echo "🚀 Starting server manually..."
         echo ""

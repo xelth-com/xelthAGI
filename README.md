@@ -46,7 +46,8 @@ Perfect for automating technical support tasks like configuring printers, instal
 
 ## 🚀 Quick Start
 
-> **For production deployment on server:** See [DEPLOYMENT.md](DEPLOYMENT.md)
+> **For production deployment:** See [DEPLOYMENT.md](DEPLOYMENT.md)
+> **For xelth.com server:** See [DEPLOYMENT-XELTH.md](DEPLOYMENT-XELTH.md) (специфичная инструкция)
 
 ### Prerequisites
 
