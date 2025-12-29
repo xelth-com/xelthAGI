@@ -5,8 +5,9 @@
 ## 🎯 Overview
 
 This is a **next-generation support automation system** combining:
-- **C# Client** with FlaUI for Windows UI Automation (~5-10MB)
-- **Python Server** with LLM integration (Claude Sonnet 4 or Gemini Flash)
+- **C# Client** with FlaUI for Windows UI Automation (~75MB standalone)
+- **Node.js Server** with LLM integration (Claude Sonnet 4 or Gemini Flash)
+- **Unique Client ID** system for centralized management
 - **Intelligent decision-making** without bloated dependencies
 
 Perfect for automating technical support tasks like configuring printers, installing software, or troubleshooting applications.
@@ -15,19 +16,19 @@ Perfect for automating technical support tasks like configuring printers, instal
 
 ```
 ┌─────────────────┐
-│  C# Client      │  ← Lightweight Windows app (~5-10MB)
-│  (FlaUI)        │  ← Scans UI, executes commands
+│  C# Client      │  ← Standalone Windows exe (~75MB)
+│  (FlaUI)        │  ← Unique Client ID, Scans UI, Executes commands
 └────────┬────────┘
-         │ HTTP/JSON
+         │ HTTP/JSON + Client ID
          ▼
 ┌─────────────────┐
-│  Python Server  │  ← Brain of the operation
-│  (FastAPI)      │  ← Decides what to do next
+│  Node.js Server │  ← Brain of the operation (Port 3232)
+│  (Express)      │  ← Tracks clients, Decides next action
 └────────┬────────┘
          │ API
          ▼
 ┌─────────────────┐
-│  LLM Service    │  ← Claude Sonnet 4 OR Gemini Flash
+│  LLM Service    │  ← Claude Sonnet 4.5 OR Gemini Flash
 │  (Anthropic/    │  ← Analyzes UI and plans actions
 │   Google)       │
 └─────────────────┘
@@ -37,18 +38,21 @@ Perfect for automating technical support tasks like configuring printers, instal
 
 | Component | Why? |
 |-----------|------|
-| **C# Client** | Native Windows, small size, no Python bloat, fewer antivirus issues |
+| **C# Client** | Native Windows, standalone exe, unique ID tracking, auto-launches apps |
 | **FlaUI** | Built on UIAutomation (native to Windows), mature and stable |
-| **Python Server** | Easy LLM integration, flexible model switching |
+| **Node.js Server** | Fast, lightweight, easy deployment as microservice |
+| **Client ID System** | Centralized management, track usage per client |
 | **Claude/Gemini** | Choose power (Claude) or cost-efficiency (Gemini) |
 
 ## 🚀 Quick Start
+
+> **For production deployment on server:** See [DEPLOYMENT.md](DEPLOYMENT.md)
 
 ### Prerequisites
 
 - **Windows 10/11** (for client)
 - **.NET 8 SDK** (for building client)
-- **Python 3.10+** (for server)
+- **Node.js 18+** (for server)
 - API key for **Claude** or **Gemini**
 
 ### 1. Setup Server
