@@ -5,10 +5,14 @@
 ## Текущее развёртывание
 
 - **Путь:** `/var/www/xelthAGI`
-- **URL:** `https://xelth.com/agi/`
+- **URL:** `https://xelth.com/AGI/`
 - **Порт:** `3232`
 - **Процесс:** PM2 (xelthAGI)
 - **Модель:** `gemini-3-flash-preview` (fallback: `gemini-2.5-flash`)
+
+> **⚠️ ВАЖНО:** Все пути API используют UPPERCASE для оптимизации QR кодов!
+> Заглавные буквы позволяют использовать alphanumeric encoding в QR кодах,
+> что уменьшает размер QR кода и помещает больше информации.
 
 ## Первоначальное развёртывание
 
@@ -79,7 +83,8 @@ chmod 600 /var/www/xelthAGI/server/.env
 
 ```nginx
 # xelthAGI - AI Automation API
-location /agi/ {
+# NOTE: UPPERCASE paths for QR code optimization (alphanumeric encoding = smaller QR)
+location /AGI/ {
     proxy_pass http://localhost:3232/;
     proxy_http_version 1.1;
     proxy_set_header Upgrade $http_upgrade;
@@ -115,10 +120,10 @@ pm2 save
 
 ```bash
 # Локальный тест
-curl http://localhost:3232/health
+curl http://localhost:3232/HEALTH
 
 # Тест через nginx
-curl https://xelth.com/agi/health
+curl https://xelth.com/AGI/HEALTH
 ```
 
 **Ожидаемый ответ:**
@@ -188,13 +193,13 @@ pm2 monit
 
 ```bash
 # Health endpoint
-curl https://xelth.com/agi/health
+curl https://xelth.com/AGI/HEALTH
 
 # Детальная проверка
-curl -v https://xelth.com/agi/health
+curl -v https://xelth.com/AGI/HEALTH
 
 # Локальный порт
-curl http://localhost:3232/health
+curl http://localhost:3232/HEALTH
 ```
 
 ## Fallback система
@@ -274,14 +279,16 @@ pm2 restart xelthAGI
 
 ## Endpoints
 
+> **⚠️ ВАЖНО:** Все пути UPPERCASE для оптимизации QR кодов!
+
 ### Health Check (GET)
 ```bash
-curl https://xelth.com/agi/health
+curl https://xelth.com/AGI/HEALTH
 ```
 
 ### Decision Endpoint (POST)
 ```bash
-curl -X POST https://xelth.com/agi/decide \
+curl -X POST https://xelth.com/AGI/DECIDE \
   -H "Content-Type: application/json" \
   -d '{
     "ClientId": "test-client",
@@ -294,6 +301,15 @@ curl -X POST https://xelth.com/agi/decide \
     "History": []
   }'
 ```
+
+### Правило для новых endpoints
+**Всегда используйте UPPERCASE для всех путей API:**
+- ✅ `/AGI/HEALTH` - правильно
+- ✅ `/AGI/STATUS` - правильно
+- ❌ `/agi/health` - неправильно
+- ❌ `/AGI/health` - неправильно
+
+Это необходимо для минимизации размера QR кодов.
 
 ## Безопасность
 

@@ -2,6 +2,9 @@
 
 Deploy the AI automation server as a microservice on port 3232.
 
+> **⚠️ IMPORTANT:** All API paths use UPPERCASE for QR code optimization!
+> Uppercase letters enable alphanumeric encoding in QR codes, reducing QR size and fitting more information.
+
 ## Prerequisites
 
 - Ubuntu/Debian Linux server
@@ -65,7 +68,7 @@ Server should start on `http://0.0.0.0:3232`
 
 Test health endpoint:
 ```bash
-curl http://localhost:3232/health
+curl http://localhost:3232/HEALTH
 ```
 
 ### 5. Setup as Systemd Service (Production)
@@ -136,7 +139,7 @@ pm2 monit
 
 ### 7. Configure Nginx Reverse Proxy (Optional)
 
-If you want to expose via domain (e.g., xelth.com/agi):
+If you want to expose via domain (e.g., xelth.com/AGI):
 
 ```bash
 sudo nano /etc/nginx/sites-available/xelth-agi
@@ -148,7 +151,8 @@ server {
     listen 80;
     server_name xelth.com;
 
-    location /agi/ {
+    # NOTE: UPPERCASE paths for QR code optimization
+    location /AGI/ {
         proxy_pass http://localhost:3232/;
         proxy_http_version 1.1;
         proxy_set_header Upgrade $http_upgrade;
@@ -159,9 +163,9 @@ server {
         proxy_cache_bypass $http_upgrade;
 
         # Timeout settings for long requests
-        proxy_connect_timeout 60s;
-        proxy_send_timeout 60s;
-        proxy_read_timeout 60s;
+        proxy_connect_timeout 120s;
+        proxy_send_timeout 120s;
+        proxy_read_timeout 120s;
     }
 }
 ```
@@ -264,7 +268,7 @@ sudo chown -R www-data:www-data /var/www/xelthAGI
 ### API errors:
 ```bash
 # Test API keys
-curl -X POST http://localhost:3232/health
+curl -X POST http://localhost:3232/HEALTH
 
 # Check .env configuration
 cat /var/www/xelthAGI/server/.env
@@ -280,10 +284,12 @@ cat /var/www/xelthAGI/server/.env
 
 ## URLs After Deployment
 
+> **⚠️ ALL PATHS MUST BE UPPERCASE** for QR code optimization!
+
 - **Direct:** `http://your-server-ip:3232`
-- **With nginx:** `http://xelth.com/agi`
-- **Health check:** `http://your-server-ip:3232/health`
-- **Decision endpoint:** `http://your-server-ip:3232/decide`
+- **With nginx:** `http://xelth.com/AGI`
+- **Health check:** `http://your-server-ip:3232/HEALTH`
+- **Decision endpoint:** `http://your-server-ip:3232/DECIDE`
 
 ## Client Configuration
 
@@ -294,8 +300,10 @@ http://your-server-ip:3232
 
 Or if using nginx:
 ```
-https://xelth.com/agi
+https://xelth.com/AGI
 ```
+
+**Remember:** All endpoint paths must be UPPERCASE (e.g., `/HEALTH`, `/DECIDE`)
 
 ---
 

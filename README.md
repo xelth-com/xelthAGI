@@ -49,6 +49,9 @@ Perfect for automating technical support tasks like configuring printers, instal
 > **For production deployment:** See [DEPLOYMENT.md](DEPLOYMENT.md)
 > **For xelth.com server:** See [DEPLOYMENT-XELTH.md](DEPLOYMENT-XELTH.md) (специфичная инструкция)
 
+> **⚠️ IMPORTANT:** All API endpoints use **UPPERCASE** paths for QR code optimization!
+> Examples: `/AGI/HEALTH`, `/AGI/DECIDE`. This enables alphanumeric encoding in QR codes, significantly reducing QR size.
+
 ### Prerequisites
 
 - **Windows 10/11** (for client)

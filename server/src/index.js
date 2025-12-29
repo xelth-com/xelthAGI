@@ -40,8 +40,10 @@ const ServerRequestSchema = z.object({
 });
 
 // --- Endpoints ---
+// NOTE: All endpoints are UPPERCASE for QR code optimization
+// Uppercase paths use alphanumeric encoding in QR codes (smaller QR size)
 
-app.get('/health', (req, res) => {
+app.get('/HEALTH', (req, res) => {
     res.json({
         status: "healthy",
         llm_provider: config.LLM_PROVIDER,
@@ -50,7 +52,7 @@ app.get('/health', (req, res) => {
     });
 });
 
-app.post('/decide', async (req, res) => {
+app.post('/DECIDE', async (req, res) => {
     try {
         // 1. Validation
         const parseResult = ServerRequestSchema.safeParse(req.body);

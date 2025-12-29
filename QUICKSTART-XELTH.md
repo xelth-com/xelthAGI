@@ -2,17 +2,19 @@
 
 ## Основная информация
 
-- **URL:** https://xelth.com/agi/
+- **URL:** https://xelth.com/AGI/
 - **Путь:** /var/www/xelthAGI
 - **Процесс:** xelthAGI (PM2)
 - **Порт:** 3232
 - **Модель:** gemini-3-flash-preview → gemini-2.5-flash (fallback)
 
+> **⚠️ ВАЖНО:** Все пути UPPERCASE для QR кодов! (меньше размер QR)
+
 ## Проверка работы
 
 ```bash
 # Health check
-curl https://xelth.com/agi/health
+curl https://xelth.com/AGI/HEALTH
 
 # Статус PM2
 pm2 status xelthAGI
@@ -54,7 +56,7 @@ pm2 restart xelthAGI
 
 # 4. Проверить
 pm2 logs xelthAGI --lines 20
-curl https://xelth.com/agi/health
+curl https://xelth.com/AGI/HEALTH
 ```
 
 ## Изменение API ключа
