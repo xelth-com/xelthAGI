@@ -9,6 +9,16 @@ class Program
     private static readonly List<string> _actionHistory = new();
     private static string _clientId = "";
 
+    // Safety Rails: High-risk actions that require user confirmation
+    private static readonly HashSet<string> HighRiskActions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "os_delete",
+        "os_kill",
+        "reg_write",
+        "os_run",
+        "write_clipboard"
+    };
+
     static async Task<int> Main(string[] args)
     {
         Console.WriteLine("╔════════════════════════════════════════════╗");
@@ -25,13 +35,15 @@ class Program
         var serverUrl = GetArgument(args, "--server", defaultServerUrl);
         var targetApp = GetArgument(args, "--app", "");
         var task = GetArgument(args, "--task", "");
+        var unsafeMode = HasFlag(args, "--unsafe") || HasFlag(args, "--auto-approve");
 
         if (string.IsNullOrEmpty(targetApp))
         {
-            Console.WriteLine("Usage: SupportAgent --app <AppName> --task <Task> [--server <URL>]");
+            Console.WriteLine("Usage: SupportAgent --app <AppName> --task <Task> [--server <URL>] [--unsafe]");
             Console.WriteLine("\nExamples:");
             Console.WriteLine("  SupportAgent --app InBodySuite --task \"Configure printer settings\"");
             Console.WriteLine("  SupportAgent --app notepad --task \"Type hello world\" --server http://my-server:5000");
+            Console.WriteLine("  SupportAgent --app notepad --task \"Delete temp files\" --unsafe  (bypasses safety confirmations)");
             return 1;
         }
 
@@ -39,6 +51,15 @@ class Program
         {
             Console.WriteLine("Error: --task parameter is required");
             return 1;
+        }
+
+        // Safety Rails notification
+        if (unsafeMode)
+        {
+            Console.ForegroundColor = ConsoleColor.Yellow;
+            Console.WriteLine("⚠️  UNSAFE MODE ENABLED - Destructive actions will NOT require confirmation");
+            Console.ResetColor();
+            Console.WriteLine();
         }
 
         // Инициализация сервисов
@@ -208,6 +229,34 @@ class Program
                         Console.WriteLine($"     💬 {cmd.Message}");
                     }
 
+                    // Safety Rails: Confirm high-risk actions
+                    if (HighRiskActions.Contains(cmd.Action) && !unsafeMode)
+                    {
+                        Console.ForegroundColor = ConsoleColor.Red;
+                        Console.WriteLine($"\n  ⚠️  WARNING: HIGH-RISK ACTION DETECTED!");
+                        Console.WriteLine($"  Action: {cmd.Action}");
+                        Console.WriteLine($"  Target: {cmd.Text}");
+                        if (!string.IsNullOrEmpty(cmd.ElementId))
+                        {
+                            Console.WriteLine($"  Parameter: {cmd.ElementId}");
+                        }
+                        Console.ResetColor();
+                        Console.Write("\n  Do you want to proceed? [Y/n]: ");
+                        var confirmation = Console.ReadLine()?.Trim().ToLower() ?? "n";
+
+                        if (confirmation != "y" && confirmation != "yes" && confirmation != "")
+                        {
+                            Console.ForegroundColor = ConsoleColor.Yellow;
+                            Console.WriteLine($"  ❌ Action DENIED by user");
+                            Console.ResetColor();
+                            _actionHistory.Add($"FAILED: User denied {cmd.Action} {cmd.Text} - Safety check");
+                            Console.WriteLine();
+                            continue; // Skip to next iteration
+                        }
+                        Console.WriteLine($"  ✅ Confirmed by user");
+                        Console.WriteLine();
+                    }
+
                     var success = await automationService.ExecuteCommand(window, cmd);
 
                     // Проверяем состояние ПОСЛЕ выполнения для self-healing
@@ -311,6 +360,11 @@ class Program
             return args[index + 1];
         }
         return defaultValue;
+    }
+
+    private static bool HasFlag(string[] args, string flag)
+    {
+        return Array.IndexOf(args, flag) >= 0;
     }
 
     private static string? LoadServerConfigFromFile()
