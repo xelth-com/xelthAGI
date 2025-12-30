@@ -173,6 +173,30 @@ class Program
                     continue;
                 }
 
+                // Handle ask_user - request human assistance
+                if (response.Command != null && response.Command.Action.ToLower() == "ask_user")
+                {
+                    // Alert user with beep
+                    Console.Beep();
+
+                    // Display message in yellow
+                    Console.ForegroundColor = ConsoleColor.Yellow;
+                    Console.WriteLine($"\n  🤝 HUMAN ASSISTANCE REQUESTED:");
+                    Console.WriteLine($"  {response.Command.Message}");
+                    Console.ResetColor();
+
+                    // Prompt for input
+                    Console.Write("  >> ");
+                    var userInput = Console.ReadLine() ?? "";
+
+                    // Log to history
+                    _actionHistory.Add($"USER_SAID: {userInput}");
+                    Console.WriteLine($"  ✅ User response recorded\n");
+
+                    // Continue to next iteration with user's response in history
+                    continue;
+                }
+
                 // 5. Выполнить обычную команду
                 if (response.Command != null)
                 {

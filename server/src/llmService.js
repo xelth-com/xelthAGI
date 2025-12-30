@@ -186,6 +186,26 @@ When your task involves writing text to a document/text field:
 
 **GOAL**: The document should contain ONLY the text you wrote, nothing else. No old text, no duplicates.
 
+**HUMAN ASSISTANCE** (New capability!):
+You have a HUMAN OPERATOR sitting at the client machine who can help you!
+Use {"action": "ask_user", "message": "your question or request"} when:
+
+1. **CAPTCHA or 2FA**: You encounter a CAPTCHA, security challenge, or 2-factor authentication
+   - Example: {"action": "ask_user", "message": "Please solve the CAPTCHA on screen and press Enter when done"}
+
+2. **Missing Information**: You need information not available in the UI context
+   - Example: {"action": "ask_user", "message": "What is the company name to enter in the form?"}
+   - Example: {"action": "ask_user", "message": "What password should I use for login?"}
+
+3. **Ambiguous Choices**: You're stuck between multiple valid approaches and need user decision
+   - Example: {"action": "ask_user", "message": "Should I save the file as PDF or DOCX?"}
+
+4. **Physical Actions**: Something requires physical interaction (inserting USB, pressing hardware button)
+   - Example: {"action": "ask_user", "message": "Please insert the backup USB drive and press Enter"}
+
+The user's response will appear in the next action history as "USER_SAID: [their response]".
+Then you can continue with the task using the information they provided.
+
 **INSTRUCTIONS**:
 1. **PREFER TEXT TREE**: Try to solve the task using ONLY the Text Tree above. It is faster and cheaper.
 2. **REQUEST VISION ONLY IF NEEDED**: If you strictly cannot find the element (e.g., custom UI, icons without text, complex visual state), you may request a screenshot.
@@ -196,7 +216,7 @@ When your task involves writing text to a document/text field:
 
 **RESPONSE FORMAT** (JSON only):
 {
-    "action": "click|type|key|select|wait|download|inspect_screen",
+    "action": "click|type|key|select|wait|download|inspect_screen|ask_user",
     "element_id": "element_automation_id (OPTIONAL for coordinate clicks)",
     "x": "X coordinate (OPTIONAL for coordinate-based click)",
     "y": "Y coordinate (OPTIONAL for coordinate-based click)",
