@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const path = require('path');
 const { z } = require('zod');
 const config = require('./config');
 const llmService = require('./llmService');
@@ -8,6 +9,27 @@ const app = express();
 
 app.use(express.json({ limit: '50mb' }));
 app.use(cors());
+
+// Global state storage for Mission Control dashboard
+let globalState = {
+    lastSeen: null,
+    clientId: 'unknown',
+    uiState: {
+        WindowTitle: '',
+        ProcessName: '',
+        Elements: []
+    },
+    task: '',
+    history: [],
+    lastDecision: {
+        action: '',
+        message: '',
+        reasoning: ''
+    },
+    screenshot: null,
+    isOnline: false,
+    totalActions: 0
+};
 
 // --- Zod Models (Matching previous Pydantic models) ---
 
@@ -67,6 +89,15 @@ app.post('/DECIDE', async (req, res) => {
 
         const request = parseResult.data;
 
+        // Update global state for Mission Control
+        globalState.lastSeen = new Date().toISOString();
+        globalState.clientId = request.ClientId;
+        globalState.task = request.Task;
+        globalState.history = request.History || [];
+        globalState.screenshot = request.State.Screenshot || null;
+        globalState.isOnline = true;
+        globalState.totalActions = request.History ? request.History.length : 0;
+
         // Log Client ID
         console.log(`\n👤 Client: ${request.ClientId} | Task: ${request.Task}`);
 
@@ -83,6 +114,14 @@ app.post('/DECIDE', async (req, res) => {
             request.Task,
             request.History
         );
+
+        // Update global state with UI state and decision
+        globalState.uiState = uiStateDict;
+        globalState.lastDecision = {
+            action: decision.action || '',
+            message: decision.message || '',
+            reasoning: decision.reasoning || ''
+        };
 
         // 3. Handle Error from LLM Service
         if (decision.error) {
@@ -133,6 +172,20 @@ app.post('/DECIDE', async (req, res) => {
         });
     }
 });
+
+// Mission Control API - Get current agent state
+app.get('/api/state', (req, res) => {
+    // Mark as offline if last seen more than 30 seconds ago
+    if (globalState.lastSeen) {
+        const timeSinceLastSeen = Date.now() - new Date(globalState.lastSeen).getTime();
+        globalState.isOnline = timeSinceLastSeen < 30000; // 30 seconds
+    }
+
+    res.json(globalState);
+});
+
+// Serve static files from public directory (Mission Control dashboard)
+app.use(express.static(path.join(__dirname, '..', 'public')));
 
 // --- Start Server ---
 

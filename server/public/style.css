@@ -1,0 +1,320 @@
+/* Mission Control - Dark Cyberpunk Theme */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+:root {
+    --bg-primary: #0a0e1a;
+    --bg-secondary: #151925;
+    --bg-tertiary: #1e2537;
+    --accent-primary: #00ff9f;
+    --accent-secondary: #00d4ff;
+    --accent-danger: #ff3366;
+    --text-primary: #e0e6f0;
+    --text-secondary: #8b95a8;
+    --border-color: #2a3547;
+    --shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
+}
+
+body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    line-height: 1.6;
+    overflow-x: hidden;
+}
+
+/* Header */
+.header {
+    background: var(--bg-secondary);
+    border-bottom: 2px solid var(--accent-primary);
+    padding: 1rem 2rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    box-shadow: var(--shadow);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+}
+
+.header h1 {
+    font-size: 1.8rem;
+    font-weight: 700;
+    background: linear-gradient(135deg, var(--accent-primary), var(--accent-secondary));
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.status {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    text-transform: uppercase;
+}
+
+.status-dot {
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    animation: pulse 2s ease-in-out infinite;
+}
+
+.status-dot.online {
+    background: var(--accent-primary);
+    box-shadow: 0 0 10px var(--accent-primary);
+}
+
+.status-dot.offline {
+    background: var(--accent-danger);
+    box-shadow: 0 0 10px var(--accent-danger);
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* Task Display */
+.task-display {
+    background: var(--bg-secondary);
+    margin: 1.5rem 2rem;
+    padding: 1.5rem;
+    border-radius: 8px;
+    border-left: 4px solid var(--accent-primary);
+    box-shadow: var(--shadow);
+}
+
+.task-display h2 {
+    font-size: 1rem;
+    color: var(--text-secondary);
+    margin-bottom: 0.5rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.task-display p {
+    font-size: 1.2rem;
+    font-weight: 500;
+    color: var(--accent-primary);
+}
+
+/* Main Layout */
+.main-container {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1.5rem;
+    padding: 0 2rem 2rem 2rem;
+    max-width: 1800px;
+    margin: 0 auto;
+}
+
+/* Panel Base */
+.panel {
+    background: var(--bg-secondary);
+    border-radius: 8px;
+    padding: 1.5rem;
+    box-shadow: var(--shadow);
+    border: 1px solid var(--border-color);
+}
+
+.panel h3 {
+    font-size: 1.1rem;
+    color: var(--accent-secondary);
+    margin-bottom: 1rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    border-bottom: 2px solid var(--border-color);
+    padding-bottom: 0.5rem;
+}
+
+/* Screenshot Viewer */
+.screenshot-viewer {
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+    padding: 1rem;
+    min-height: 400px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 2px dashed var(--border-color);
+}
+
+.screenshot-viewer img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 4px;
+    box-shadow: 0 4px 15px rgba(0, 255, 159, 0.2);
+}
+
+.screenshot-viewer.empty {
+    color: var(--text-secondary);
+    font-style: italic;
+}
+
+/* Agent Thoughts */
+.thoughts-box {
+    background: var(--bg-tertiary);
+    border-radius: 4px;
+    padding: 1rem;
+    margin-top: 1.5rem;
+    border-left: 3px solid var(--accent-secondary);
+    min-height: 100px;
+}
+
+.thoughts-box h4 {
+    font-size: 0.9rem;
+    color: var(--accent-secondary);
+    margin-bottom: 0.5rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.thoughts-box p {
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    line-height: 1.5;
+}
+
+/* Action History */
+.history-list {
+    max-height: 600px;
+    overflow-y: auto;
+    padding-right: 0.5rem;
+}
+
+.history-list::-webkit-scrollbar {
+    width: 6px;
+}
+
+.history-list::-webkit-scrollbar-track {
+    background: var(--bg-tertiary);
+    border-radius: 3px;
+}
+
+.history-list::-webkit-scrollbar-thumb {
+    background: var(--accent-primary);
+    border-radius: 3px;
+}
+
+.history-list::-webkit-scrollbar-thumb:hover {
+    background: var(--accent-secondary);
+}
+
+.history-item {
+    background: var(--bg-tertiary);
+    padding: 0.8rem;
+    margin-bottom: 0.5rem;
+    border-radius: 4px;
+    border-left: 3px solid transparent;
+    transition: all 0.2s ease;
+    font-size: 0.9rem;
+}
+
+.history-item:hover {
+    background: var(--bg-primary);
+    transform: translateX(2px);
+}
+
+.history-item.success {
+    border-left-color: var(--accent-primary);
+}
+
+.history-item.error {
+    border-left-color: var(--accent-danger);
+}
+
+.history-item.info {
+    border-left-color: var(--accent-secondary);
+}
+
+.history-item .timestamp {
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    margin-bottom: 0.3rem;
+}
+
+.history-item .action {
+    color: var(--text-primary);
+    font-family: 'Courier New', monospace;
+}
+
+/* Empty State */
+.empty-state {
+    text-align: center;
+    color: var(--text-secondary);
+    padding: 3rem 1rem;
+    font-style: italic;
+}
+
+/* Stats Bar */
+.stats-bar {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+}
+
+.stat-item {
+    background: var(--bg-tertiary);
+    padding: 0.8rem 1.2rem;
+    border-radius: 4px;
+    flex: 1;
+    text-align: center;
+}
+
+.stat-item .label {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.stat-item .value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--accent-primary);
+    margin-top: 0.3rem;
+}
+
+/* Responsive Design */
+@media (max-width: 1200px) {
+    .main-container {
+        grid-template-columns: 1fr;
+    }
+}
+
+@media (max-width: 768px) {
+    .header {
+        flex-direction: column;
+        gap: 1rem;
+        text-align: center;
+    }
+
+    .main-container {
+        padding: 0 1rem 1rem 1rem;
+    }
+
+    .task-display {
+        margin: 1rem;
+    }
+}
+
+/* Loading Animation */
+.loading {
+    display: inline-block;
+    width: 20px;
+    height: 20px;
+    border: 3px solid var(--border-color);
+    border-top-color: var(--accent-primary);
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}

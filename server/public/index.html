@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mission Control - xelthAGI</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <h1>⚡ xelthAGI Mission Control</h1>
+        <div class="status">
+            <div class="status-dot offline" id="statusDot"></div>
+            <span id="statusText">Offline</span>
+        </div>
+    </header>
+
+    <!-- Task Display -->
+    <section class="task-display">
+        <h2>Current Task</h2>
+        <p id="taskText">No active task</p>
+    </section>
+
+    <!-- Main Content -->
+    <main class="main-container">
+        <!-- Left Column: Screenshot & Thoughts -->
+        <div>
+            <div class="panel">
+                <h3>🖥️ Live Screenshot</h3>
+                <div class="screenshot-viewer empty" id="screenshotViewer">
+                    <span>No screenshot available</span>
+                </div>
+            </div>
+
+            <div class="panel thoughts-box">
+                <h4>💭 Agent Thoughts</h4>
+                <p id="agentThoughts">Waiting for agent activity...</p>
+            </div>
+        </div>
+
+        <!-- Right Column: Stats & History -->
+        <div>
+            <div class="panel">
+                <h3>📊 Statistics</h3>
+                <div class="stats-bar">
+                    <div class="stat-item">
+                        <div class="label">Actions</div>
+                        <div class="value" id="statActions">0</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="label">Window</div>
+                        <div class="value" id="statWindow">—</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="label">Last Seen</div>
+                        <div class="value" id="statLastSeen">—</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel">
+                <h3>📜 Action History</h3>
+                <div class="history-list" id="historyList">
+                    <div class="empty-state">No actions yet</div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>
