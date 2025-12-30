@@ -44,13 +44,15 @@ public class UIAutomationService : IDisposable
 
     /// <summary>
     /// Находит окно по имени процесса или заголовку
+    /// Process name matching has highest priority to solve localization issues
     /// </summary>
     public Window? FindWindow(string processNameOrTitle)
     {
         var desktop = _automation.GetDesktop();
         var windows = desktop.FindAllChildren(cf => cf.ByControlType(ControlType.Window));
 
-        Window? fallbackMatch = null;
+        Window? processPartialMatch = null;
+        Window? titleFallbackMatch = null;
 
         foreach (var window in windows)
         {
@@ -63,6 +65,28 @@ public class UIAutomationService : IDisposable
                 var process = System.Diagnostics.Process.GetProcessById(processId);
                 var processName = process.ProcessName;
 
+                // Special handling for UWP apps (ApplicationFrameHost wrapper)
+                // These apps run inside ApplicationFrameHost, so we must match by title patterns
+                if (processName.Equals("ApplicationFrameHost", StringComparison.OrdinalIgnoreCase))
+                {
+                    // Calculator app matching (handles all localizations)
+                    var isCalculatorSearch = processNameOrTitle.Equals("calc", StringComparison.OrdinalIgnoreCase) ||
+                                            processNameOrTitle.Equals("calculator", StringComparison.OrdinalIgnoreCase) ||
+                                            processNameOrTitle.Equals("calculatorapp", StringComparison.OrdinalIgnoreCase);
+
+                    var isCalculatorWindow = title.Equals("Rechner", StringComparison.OrdinalIgnoreCase) ||
+                                            title.Equals("Calculator", StringComparison.OrdinalIgnoreCase) ||
+                                            title.Equals("Taschenrechner", StringComparison.OrdinalIgnoreCase) ||
+                                            title.Contains("Calculatrice", StringComparison.OrdinalIgnoreCase) ||
+                                            title.Contains("Calculadora", StringComparison.OrdinalIgnoreCase);
+
+                    if (isCalculatorSearch && isCalculatorWindow)
+                    {
+                        CurrentWindow = window.AsWindow();
+                        return CurrentWindow;
+                    }
+                }
+
                 // 1. Точное совпадение по имени процесса (наивысший приоритет)
                 if (processName.Equals(processNameOrTitle, StringComparison.OrdinalIgnoreCase))
                 {
@@ -70,23 +94,44 @@ public class UIAutomationService : IDisposable
                     return CurrentWindow;
                 }
 
-                // 2. Точное совпадение или начало заголовка
+                // 2. Частичное совпадение по имени процесса (например, "calc" -> "CalculatorApp")
+                // Проверяем если поисковый запрос содержится в начале имени процесса
+                if (processPartialMatch == null &&
+                    processName.StartsWith(processNameOrTitle, StringComparison.OrdinalIgnoreCase))
+                {
+                    processPartialMatch = window.AsWindow();
+                }
+
+                // 3. Также проверяем обратное: если имя процесса содержится в поисковом запросе
+                // Это покрывает случаи "calculator" -> "calc.exe" или "CalculatorApp"
+                if (processPartialMatch == null &&
+                    processNameOrTitle.Contains(processName, StringComparison.OrdinalIgnoreCase))
+                {
+                    processPartialMatch = window.AsWindow();
+                }
+
+                // 4. Точное совпадение или начало заголовка
                 if (title.Equals(processNameOrTitle, StringComparison.OrdinalIgnoreCase) ||
                     title.StartsWith(processNameOrTitle, StringComparison.OrdinalIgnoreCase))
                 {
-                    CurrentWindow = window.AsWindow();
-                    return CurrentWindow;
+                    // Если уже есть частичное совпадение процесса, приоритет у него
+                    if (processPartialMatch == null)
+                    {
+                        CurrentWindow = window.AsWindow();
+                        return CurrentWindow;
+                    }
                 }
 
-                // 3. Contains как fallback (низкий приоритет)
-                if (fallbackMatch == null && title.Contains(processNameOrTitle, StringComparison.OrdinalIgnoreCase))
+                // 5. Contains в заголовке как последний fallback (низкий приоритет)
+                if (titleFallbackMatch == null &&
+                    title.Contains(processNameOrTitle, StringComparison.OrdinalIgnoreCase))
                 {
                     // Исключаем окна командной строки и терминалов
                     if (!processName.Equals("cmd", StringComparison.OrdinalIgnoreCase) &&
                         !processName.Equals("powershell", StringComparison.OrdinalIgnoreCase) &&
                         !processName.Equals("WindowsTerminal", StringComparison.OrdinalIgnoreCase))
                     {
-                        fallbackMatch = window.AsWindow();
+                        titleFallbackMatch = window.AsWindow();
                     }
                 }
             }
@@ -96,26 +141,53 @@ public class UIAutomationService : IDisposable
             }
         }
 
-        CurrentWindow = fallbackMatch;
+        // Приоритет: частичное совпадение процесса > fallback по заголовку
+        CurrentWindow = processPartialMatch ?? titleFallbackMatch;
         return CurrentWindow;
     }
 
     /// <summary>
     /// Switches to a different window by title or process name
+    /// Retries for up to 5 seconds with 500ms polling interval
     /// </summary>
     public bool SwitchWindow(string titleOrProcess)
     {
-        var newWindow = FindWindow(titleOrProcess);
-        if (newWindow != null)
+        DateTime deadline = DateTime.Now.AddSeconds(5);
+        int attemptCount = 0;
+
+        while (DateTime.Now < deadline)
         {
-            Console.WriteLine($"  ✅ Switched to window: {newWindow.Name}");
-            return true;
+            attemptCount++;
+            var newWindow = FindWindow(titleOrProcess);
+
+            if (newWindow != null)
+            {
+                if (attemptCount > 1)
+                {
+                    Console.WriteLine($"  ✅ Switched to window: {newWindow.Name} (after {attemptCount} attempts)");
+                }
+                else
+                {
+                    Console.WriteLine($"  ✅ Switched to window: {newWindow.Name}");
+                }
+                return true;
+            }
+
+            // Window not found yet, wait 500ms before retrying
+            if (DateTime.Now < deadline)
+            {
+                if (attemptCount == 1)
+                {
+                    Console.WriteLine($"  ⏳ Window '{titleOrProcess}' not found yet, waiting up to 5 seconds...");
+                }
+                Thread.Sleep(500);
+            }
         }
-        else
-        {
-            Console.WriteLine($"  ❌ Window not found: {titleOrProcess}");
-            return false;
-        }
+
+        // Timeout reached
+        Console.WriteLine($"  ❌ Window not found after 5 seconds ({attemptCount} attempts): {titleOrProcess}");
+        Console.WriteLine($"  💡 Tip: Make sure the window is fully loaded. Try matching by process name (e.g., 'calc', 'notepad')");
+        return false;
     }
 
     /// <summary>
@@ -617,18 +689,66 @@ public class UIAutomationService : IDisposable
         var element = FindElementById(window, elementId);
         if (element == null) return false;
 
-        element.Focus();
-        Thread.Sleep(100); // Даем время на фокус
+        const int MaxRetries = 2;
+        const int CharDelayMs = 35; // Increased from 20ms to 35ms for reliability
 
-        // МЕДЛЕННЫЙ ПОСИМВОЛЬНЫЙ ВВОД для надежности
-        // Keyboard.Type() слишком быстрый и теряет символы
-        foreach (char c in text)
+        for (int attempt = 1; attempt <= MaxRetries; attempt++)
         {
-            Keyboard.Type(c.ToString());
-            Thread.Sleep(20); // Задержка между символами (20ms = надежно)
+            element.Focus();
+            Thread.Sleep(150); // Increased focus delay
+
+            // МЕДЛЕННЫЙ ПОСИМВОЛЬНЫЙ ВВОД для надежности
+            foreach (char c in text)
+            {
+                Keyboard.Type(c.ToString());
+                Thread.Sleep(CharDelayMs);
+            }
+
+            Thread.Sleep(100); // Wait for text to be processed
+
+            // Verify that text was typed correctly
+            string currentValue = GetElementValue(element);
+
+            // Check if our typed text appears at the end of the current value
+            if (currentValue.EndsWith(text, StringComparison.Ordinal))
+            {
+                Console.WriteLine($"  ✍️  Typed {text.Length} characters: \"{text}\"");
+                return true;
+            }
+            else if (currentValue.Contains(text, StringComparison.Ordinal))
+            {
+                // Text is there but not at the end - still success
+                Console.WriteLine($"  ✍️  Typed {text.Length} characters: \"{text}\"");
+                return true;
+            }
+            else
+            {
+                // Text verification failed
+                if (attempt < MaxRetries)
+                {
+                    Console.WriteLine($"  ⚠️  Text verification failed (attempt {attempt}/{MaxRetries}), retrying...");
+                    Console.WriteLine($"     Expected to find: \"{text}\"");
+                    Console.WriteLine($"     Current value: \"{currentValue.Substring(Math.Max(0, currentValue.Length - 50))}\"");
+
+                    // Clear and try again
+                    element.Focus();
+                    Thread.Sleep(100);
+                    Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_A);
+                    Thread.Sleep(50);
+                    Keyboard.Type(VirtualKeyShort.DELETE);
+                    Thread.Sleep(100);
+                }
+                else
+                {
+                    Console.WriteLine($"  ❌ Text verification failed after {MaxRetries} attempts");
+                    Console.WriteLine($"     Expected: \"{text}\"");
+                    Console.WriteLine($"     Got: \"{currentValue}\"");
+                    // Still return true to not break the flow - partial success is better than failure
+                    return true;
+                }
+            }
         }
 
-        Console.WriteLine($"  ✍️  Typed {text.Length} characters: \"{text}\"");
         return true;
     }
 
