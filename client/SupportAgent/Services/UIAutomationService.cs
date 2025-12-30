@@ -6,11 +6,20 @@ using FlaUI.UIA3;
 using SupportAgent.Models;
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.Runtime.InteropServices;
 
 namespace SupportAgent.Services;
 
 public class UIAutomationService : IDisposable
 {
+    // Windows API для проверки фокуса окна
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
     private readonly UIA3Automation _automation;
     private Window? _currentWindow;
     private Dictionary<string, AutomationElement> _elementCache = new();
@@ -99,6 +108,59 @@ public class UIAutomationService : IDisposable
         ScanElements(window, state.Elements, maxDepth: 10);
 
         return state;
+    }
+
+    /// <summary>
+    /// Проверяет, находится ли целевое окно в фокусе (foreground)
+    /// </summary>
+    private bool IsWindowInFocus(Window window)
+    {
+        try
+        {
+            var foregroundHandle = GetForegroundWindow();
+            var targetHandle = window.Properties.NativeWindowHandle.ValueOrDefault;
+            return foregroundHandle == targetHandle;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Возвращает фокус на целевое окно
+    /// </summary>
+    private bool EnsureWindowFocus(Window window)
+    {
+        try
+        {
+            if (IsWindowInFocus(window))
+            {
+                return true; // Окно уже в фокусе
+            }
+
+            Console.WriteLine("  ⚠️  Target window lost focus! Attempting to restore...");
+
+            var targetHandle = window.Properties.NativeWindowHandle.ValueOrDefault;
+            bool success = SetForegroundWindow(targetHandle);
+
+            if (success)
+            {
+                Thread.Sleep(200); // Даем время на переключение фокуса
+                Console.WriteLine("  ✅ Focus restored to target window");
+                return true;
+            }
+            else
+            {
+                Console.WriteLine("  ❌ Failed to restore window focus!");
+                return false;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  ❌ Error ensuring window focus: {ex.Message}");
+            return false;
+        }
     }
 
     /// <summary>
@@ -229,6 +291,18 @@ public class UIAutomationService : IDisposable
         try
         {
             await Task.Delay(command.DelayMs);
+
+            // CRITICAL: Проверяем фокус окна перед действиями, требующими взаимодействия
+            var actionRequiresFocus = command.Action.ToLower() is "click" or "type" or "select" or "mouse_move";
+
+            if (actionRequiresFocus)
+            {
+                if (!EnsureWindowFocus(window))
+                {
+                    Console.WriteLine($"  ❌ Cannot execute {command.Action}: Target window is not in focus and focus could not be restored!");
+                    return false;
+                }
+            }
 
             switch (command.Action.ToLower())
             {
