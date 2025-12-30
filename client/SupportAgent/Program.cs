@@ -94,6 +94,7 @@ class Program
 
         var maxSteps = 50; // Максимум 50 шагов
         var stepCount = 0;
+        int nextScreenshotQuality = 0; // 0 = no screenshot, >0 = capture with this quality
 
         while (stepCount < maxSteps)
         {
@@ -106,6 +107,14 @@ class Program
                 Console.WriteLine("  → Scanning UI state...");
                 var uiState = automationService.GetWindowState(window);
                 Console.WriteLine($"  → Found {uiState.Elements.Count} UI elements");
+
+                // ECONOMY MODE: Add screenshot only if requested
+                if (nextScreenshotQuality > 0)
+                {
+                    Console.WriteLine($"  📷 Capturing screenshot (Quality: {nextScreenshotQuality}%)...");
+                    uiState.Screenshot = automationService.CaptureScreen(nextScreenshotQuality);
+                    nextScreenshotQuality = 0; // Reset flag
+                }
 
                 // 2. Отправить на сервер и получить команду
                 Console.WriteLine("  → Asking server for next action...");
@@ -134,7 +143,21 @@ class Program
                     return 0;
                 }
 
-                // 4. Выполнить команду
+                // 4. Handle special commands
+                if (response.Command != null && response.Command.Action.ToLower() == "inspect_screen")
+                {
+                    // Server requested screenshot - parse quality and set flag
+                    int.TryParse(response.Command.Text, out int quality);
+                    nextScreenshotQuality = quality > 0 ? quality : 50; // Default to 50% if invalid
+
+                    Console.WriteLine($"  👀 Server requested visual inspection (Quality: {nextScreenshotQuality}%)");
+                    _actionHistory.Add($"SYSTEM: Requested screenshot at {nextScreenshotQuality}% quality");
+
+                    // Continue to next iteration to capture and send screenshot
+                    continue;
+                }
+
+                // 5. Выполнить обычную команду
                 if (response.Command != null)
                 {
                     var cmd = response.Command;

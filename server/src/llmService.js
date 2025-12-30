@@ -1,5 +1,7 @@
 const { claudeClient, geminiClient } = require('./llm.provider');
 const config = require('./config');
+const fs = require('fs').promises;
+const path = require('path');
 
 class LLMService {
     constructor() {
@@ -19,21 +21,49 @@ class LLMService {
         }
     }
 
-    async decideNextAction(uiState, task, history) {
-        const prompt = this._buildPrompt(uiState, task, history);
-
-        if (this.provider === 'claude') {
-            return await this._askClaude(prompt);
-        } else if (this.provider === 'gemini') {
-            return await this._askGemini(prompt);
+    async _loadPlaybook(playbookName) {
+        try {
+            const playbookPath = path.join(__dirname, '..', 'playbooks', `${playbookName}.md`);
+            const content = await fs.readFile(playbookPath, 'utf8');
+            return content;
+        } catch (error) {
+            console.error(`❌ Failed to load playbook '${playbookName}': ${error.message}`);
+            return null;
         }
     }
 
-    _buildPrompt(uiState, task, history) {
+    async decideNextAction(uiState, task, history) {
+        // Check if task is a playbook reference
+        let effectiveTask = task;
+        if (task.startsWith('playbook:')) {
+            const playbookName = task.substring(9).trim(); // Remove 'playbook:' prefix
+            const playbookContent = await this._loadPlaybook(playbookName);
+            if (playbookContent) {
+                effectiveTask = `Execute the following playbook:\n\n${playbookContent}`;
+                console.log(`📖 Loaded playbook: ${playbookName}`);
+            } else {
+                effectiveTask = task; // Fallback to original task if playbook not found
+            }
+        }
+
+        const screenshotBase64 = uiState.Screenshot || null;
+        const prompt = this._buildPrompt(uiState, effectiveTask, history, screenshotBase64);
+
+        if (this.provider === 'claude') {
+            return await this._askClaude(prompt, screenshotBase64);
+        } else if (this.provider === 'gemini') {
+            return await this._askGemini(prompt, screenshotBase64);
+        }
+    }
+
+    _buildPrompt(uiState, task, history, screenshotBase64 = null) {
         const elementsSummary = this._summarizeElements(uiState.Elements || []);
         const historyText = history && history.length > 0
             ? history.slice(-10).map((h, i) => `  ${i + 1}. ${h}`).join('\n')
             : '  (none)';
+
+        const hasScreenshot = !!screenshotBase64;
+        const visionMode = hasScreenshot ? 'VISUAL MODE (Image provided)' : 'TEXT-ONLY MODE (Economy)';
 
         return `You are a UI automation agent. Your task is to help complete the following objective:
 
@@ -41,30 +71,44 @@ class LLMService {
 
 **CURRENT WINDOW**: ${uiState.WindowTitle || 'Unknown'}
 
+**MODE**: ${visionMode}
+
 **ACTION HISTORY** (last 10 actions):
 ${historyText}
 
-**AVAILABLE UI ELEMENTS**:
+**AVAILABLE UI ELEMENTS (Text Tree)**:
 ${elementsSummary}
+
+${hasScreenshot ? '**SCREENSHOT**: Provided - analyze the image for visual context.' : '**SCREENSHOT**: Not provided (Saving bandwidth).'}
 
 **YOUR JOB**:
 Analyze the current UI state and determine the NEXT SINGLE ACTION to complete the task.
 
+**INSTRUCTIONS**:
+1. **PREFER TEXT TREE**: Try to solve the task using ONLY the Text Tree above. It is faster and cheaper.
+2. **REQUEST VISION ONLY IF NEEDED**: If you strictly cannot find the element (e.g., custom UI, icons without text, complex visual state), you may request a screenshot.
+3. **To request a screenshot**, return action: "inspect_screen" and set "text" parameter to quality level:
+   - "20" for checking window layout/existence (Low quality, very cheap)
+   - "50" for finding buttons/icons (Medium quality)
+   - "70" for reading small text/captchas (High quality, expensive)
+
 **RESPONSE FORMAT** (JSON only):
 {
-    "action": "click|type|select|wait",
-    "element_id": "element_automation_id",
-    "text": "text to type (if action is 'type')",
+    "action": "click|type|select|wait|download|inspect_screen",
+    "element_id": "element_automation_id (or blank if inspect_screen)",
+    "text": "text to type OR quality level (20/50/70) for inspect_screen",
+    "url": "download URL (only for 'download' action)",
+    "local_file_name": "filename to save (only for 'download' action)",
     "message": "explanation of what you're doing",
     "task_completed": true|false,
-    "reasoning": "why you chose this action"
+    "reasoning": "why you chose this action. If requesting screen, explain why text tree failed."
 }
 
 **RULES**:
 1. Return ONLY ONE action at a time
 2. If task is complete, set task_completed=true and action=""
 3. Be precise - use exact element IDs from the list above
-4. If element not found, try alternative approach or set task_completed=false with error message
+4. If element not found in text tree AND no screenshot available, request screenshot via inspect_screen
 5. Think step by step
 
 Respond with JSON only, no additional text.`;
@@ -93,13 +137,27 @@ Respond with JSON only, no additional text.`;
         return summaryLines.join('\n');
     }
 
-    async _askClaude(prompt) {
+    async _askClaude(prompt, screenshotBase64 = null) {
         try {
+            const content = screenshotBase64
+                ? [
+                    { type: 'text', text: prompt },
+                    {
+                        type: 'image',
+                        source: {
+                            type: 'base64',
+                            media_type: 'image/jpeg',
+                            data: screenshotBase64
+                        }
+                    }
+                ]
+                : prompt;
+
             const response = await this.claude.messages.create({
                 model: config.CLAUDE_MODEL,
                 max_tokens: 1024,
                 temperature: config.TEMPERATURE,
-                messages: [{ role: 'user', content: prompt }]
+                messages: [{ role: 'user', content }]
             });
 
             const text = response.content[0].text;
@@ -110,7 +168,7 @@ Respond with JSON only, no additional text.`;
         }
     }
 
-    async _askGemini(prompt) {
+    async _askGemini(prompt, screenshotBase64 = null) {
         const models = [
             { name: this.geminiPrimaryModel, temperature: config.TEMPERATURE },
             { name: this.geminiFallbackModel, temperature: config.TEMPERATURE }
@@ -118,9 +176,20 @@ Respond with JSON only, no additional text.`;
 
         for (const [index, modelConfig] of models.entries()) {
             try {
+                // Build parts array - text first, then image if provided
+                const parts = [{ text: prompt }];
+                if (screenshotBase64) {
+                    parts.push({
+                        inlineData: {
+                            mimeType: 'image/jpeg',
+                            data: screenshotBase64
+                        }
+                    });
+                }
+
                 const result = await this.gemini.models.generateContent({
                     model: modelConfig.name,
-                    contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                    contents: [{ role: 'user', parts }],
                     config: {
                         systemInstruction: [
                             "You are a UI automation agent.",

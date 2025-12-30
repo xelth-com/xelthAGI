@@ -9,6 +9,10 @@ public class Command
     public int Y { get; set; }
     public int DelayMs { get; set; } = 100;
     public string Message { get; set; } = string.Empty; // Для вывода пользователю
+
+    // For 'download' action
+    public string Url { get; set; } = string.Empty;
+    public string LocalFileName { get; set; } = string.Empty;
 }
 
 public class ServerRequest

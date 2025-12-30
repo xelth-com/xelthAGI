@@ -14,10 +14,12 @@ public class UIAutomationService : IDisposable
     private readonly UIA3Automation _automation;
     private Window? _currentWindow;
     private Dictionary<string, AutomationElement> _elementCache = new();
+    private readonly HttpClient _httpClient;
 
     public UIAutomationService()
     {
         _automation = new UIA3Automation();
+        _httpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(5) }; // Timeout for large files
     }
 
     /// <summary>
@@ -97,6 +99,49 @@ public class UIAutomationService : IDisposable
         ScanElements(window, state.Elements, maxDepth: 10);
 
         return state;
+    }
+
+    /// <summary>
+    /// Captures screenshot with specified quality (1-100)
+    /// </summary>
+    public string CaptureScreen(int quality = 50)
+    {
+        try
+        {
+            var desktop = _automation.GetDesktop();
+            // Prefer capturing specific window if available
+            var target = _currentWindow ?? desktop;
+
+            using var image = FlaUI.Core.Capturing.Capture.Element(target).Bitmap;
+
+            // Setup JPEG encoder with quality
+            var jpegEncoder = GetEncoder(ImageFormat.Jpeg);
+            if (jpegEncoder == null)
+            {
+                Console.WriteLine("❌ JPEG encoder not found");
+                return "";
+            }
+
+            var encoderParameters = new EncoderParameters(1);
+            encoderParameters.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, (long)quality);
+
+            using var ms = new MemoryStream();
+            image.Save(ms, jpegEncoder, encoderParameters);
+            byte[] imageBytes = ms.ToArray();
+
+            return Convert.ToBase64String(imageBytes);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"⚠️ Screenshot failed: {ex.Message}");
+            return "";
+        }
+    }
+
+    private ImageCodecInfo? GetEncoder(ImageFormat format)
+    {
+        var codecs = ImageCodecInfo.GetImageDecoders();
+        return codecs.FirstOrDefault(codec => codec.FormatID == format.Guid);
     }
 
     private void ScanElements(AutomationElement element, List<UIElement> elements, int maxDepth, int currentDepth = 0)
@@ -204,6 +249,14 @@ public class UIAutomationService : IDisposable
                     await Task.Delay(command.DelayMs);
                     return true;
 
+                case "download":
+                    return await DownloadFile(command.Url, command.LocalFileName);
+
+                case "inspect_screen":
+                    // This command is handled in Program.cs - it signals to capture screenshot
+                    // Return true to indicate acknowledgment
+                    return true;
+
                 default:
                     Console.WriteLine($"Unknown command: {command.Action}");
                     return false;
@@ -277,8 +330,65 @@ public class UIAutomationService : IDisposable
         }
     }
 
+    /// <summary>
+    /// Downloads a file from URL to local Downloads folder
+    /// </summary>
+    private async Task<bool> DownloadFile(string url, string localFileName)
+    {
+        if (string.IsNullOrEmpty(url))
+        {
+            Console.WriteLine("❌ Download command missing URL.");
+            return false;
+        }
+
+        if (string.IsNullOrEmpty(localFileName))
+        {
+            // Extract filename from URL if not specified
+            localFileName = Path.GetFileName(new Uri(url).LocalPath);
+            if (string.IsNullOrEmpty(localFileName))
+            {
+                localFileName = "downloaded_file";
+            }
+        }
+
+        // Determine save path (Downloads folder)
+        var downloadsPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+            "Downloads"
+        );
+        var fullPath = Path.Combine(downloadsPath, localFileName);
+
+        try
+        {
+            Console.WriteLine($"  → Downloading from {url}");
+            Console.WriteLine($"  → Saving to {fullPath}");
+
+            var response = await _httpClient.GetAsync(url);
+            response.EnsureSuccessStatusCode();
+
+            await using (var fs = new FileStream(fullPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                await response.Content.CopyToAsync(fs);
+            }
+
+            Console.WriteLine($"  ✅ File downloaded successfully");
+            return true;
+        }
+        catch (HttpRequestException httpEx)
+        {
+            Console.WriteLine($"  ❌ HTTP error during download: {httpEx.Message}");
+            return false;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  ❌ Error downloading file: {ex.Message}");
+            return false;
+        }
+    }
+
     public void Dispose()
     {
         _automation?.Dispose();
+        _httpClient?.Dispose();
     }
 }
