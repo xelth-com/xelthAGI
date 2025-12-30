@@ -70,7 +70,7 @@ npm start
 npm run dev
 ```
 
-Server will start on `http://localhost:5000`
+Server will start on `http://localhost:3232`
 
 ### 2. Build Client
 
@@ -99,7 +99,7 @@ The compiled executable will be in `bin/Release/net8.0-windows/win-x64/publish/`
 SupportAgent.exe --app "InBodySuite" --task "Configure printer to InBody770"
 
 # With custom server
-SupportAgent.exe --app "Calculator" --task "Calculate 15 + 27" --server http://my-server:5000
+SupportAgent.exe --app "Calculator" --task "Calculate 15 + 27" --server http://my-server:3232
 
 # Multiple tasks
 SupportAgent.exe --app "Settings" --task "Enable dark mode"
@@ -123,7 +123,7 @@ GEMINI_MODEL=gemini-3-flash-preview  # Auto-falls back to gemini-2.5-flash
 
 # Server
 HOST=0.0.0.0
-PORT=5000
+PORT=3232
 ```
 
 ### Client Command Line Options
@@ -132,7 +132,7 @@ PORT=5000
 |--------|-------------|---------|
 | `--app` | Target application name or window title | `--app "InBodySuite"` |
 | `--task` | Task description for AI | `--task "Configure printer"` |
-| `--server` | Server URL (default: localhost:5000) | `--server http://10.0.0.5:5000` |
+| `--server` | Server URL (default: localhost:3232) | `--server http://10.0.0.5:3232` |
 
 ## 💡 Use Cases
 
@@ -247,10 +247,10 @@ Add more in `UIAutomationService.cs:ExecuteCommand()`
 Run server on a different machine:
 ```bash
 # On server machine
-npm start  # Listens on 0.0.0.0:5000
+npm start  # Listens on 0.0.0.0:3232
 
 # On client machine
-SupportAgent.exe --app "MyApp" --task "Do something" --server http://192.168.1.100:5000
+SupportAgent.exe --app "MyApp" --task "Do something" --server http://192.168.1.100:3232
 ```
 
 ## 📊 Comparison
@@ -344,9 +344,9 @@ Edit `server/src/llmService.js:_buildPrompt()`
 - Check with FlaUI Inspector tool
 
 ### Server connection failed
-- Verify server is running: `curl http://localhost:5000/health`
+- Verify server is running: `curl http://localhost:3232/health`
 - Check firewall settings
-- Try `--server http://127.0.0.1:5000` instead of localhost
+- Try `--server http://127.0.0.1:3232` instead of localhost
 
 ### LLM errors
 - Verify API keys in `.env`

@@ -5,7 +5,7 @@ namespace SupportAgent;
 
 class Program
 {
-    private const string DEFAULT_SERVER_URL = "http://localhost:5000";
+    private const string DEFAULT_SERVER_URL = "http://localhost:3232";
     private static readonly List<string> _actionHistory = new();
 
     static async Task<int> Main(string[] args)
@@ -24,7 +24,7 @@ class Program
             Console.WriteLine("Usage: SupportAgent --app <AppName> --task <Task> [--server <URL>]");
             Console.WriteLine("\nExamples:");
             Console.WriteLine("  SupportAgent --app InBodySuite --task \"Configure printer settings\"");
-            Console.WriteLine("  SupportAgent --app notepad --task \"Type hello world\" --server http://my-server:5000");
+            Console.WriteLine("  SupportAgent --app notepad --task \"Type hello world\" --server http://my-server:3232");
             return 1;
         }
 
