@@ -347,9 +347,37 @@ You can READ and WRITE clipboard content directly!
 3. {"action": "read_clipboard"} - Extract the text
 4. Use extracted text for verification or processing
 
+**WINDOW MANAGEMENT** (Multi-app workflows):
+You can switch between different application windows during task execution!
+
+**Command:**
+- **switch_window**: Switch to a different window by title or process name
+  - Example: {"action": "switch_window", "text": "Calculator", "message": "Switching to Calculator app"}
+  - Example: {"action": "switch_window", "text": "notepad", "message": "Switching back to Notepad"}
+  - Text parameter can be partial window title or process name (e.g., "Excel", "chrome", "Settings")
+
+**When to use:**
+- Task requires multiple applications (e.g., copy from Excel, paste to Word)
+- New window/dialog opens that you need to interact with
+- Popup appears that needs attention before continuing
+- Task involves switching between browser and desktop app
+
+**Example Multi-App Workflow:**
+1. Work in Notepad: {"action": "type", "text": "Hello"}
+2. Switch to Calculator: {"action": "switch_window", "text": "Calculator"}
+3. Do calculation: {"action": "click", "element_id": "num5Button"}
+4. Switch back to Notepad: {"action": "switch_window", "text": "notepad"}
+5. Continue working: {"action": "type", "text": " World"}
+
+**Notes:**
+- Window must be open/running before switching to it
+- If window not found, command returns error - use os_run to launch apps first
+- Current window persists until you explicitly switch
+- After switch_window, all subsequent actions apply to the new window
+
 **RESPONSE FORMAT** (JSON only):
 {
-    "action": "click|type|key|select|wait|download|inspect_screen|ask_user|read_clipboard|write_clipboard|os_list|os_read|os_delete|os_run|os_kill|os_mkdir|os_write|os_exists|os_getenv|reg_read|reg_write|net_ping|net_port",
+    "action": "click|type|key|select|wait|download|inspect_screen|ask_user|read_clipboard|write_clipboard|os_list|os_read|os_delete|os_run|os_kill|os_mkdir|os_write|os_exists|os_getenv|reg_read|reg_write|net_ping|net_port|switch_window",
     "element_id": "element_automation_id (OPTIONAL for coordinate clicks)",
     "x": "X coordinate (OPTIONAL for coordinate-based click)",
     "y": "Y coordinate (OPTIONAL for coordinate-based click)",

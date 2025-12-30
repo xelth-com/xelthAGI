@@ -78,10 +78,10 @@ class Program
 
         // Поиск окна приложения
         Console.WriteLine($"Looking for window: {targetApp}");
-        var window = automationService.FindWindow(targetApp);
+        automationService.FindWindow(targetApp);
 
         // Если не нашли, пытаемся запустить Notepad автоматически
-        if (window == null && targetApp.Contains("Notepad", StringComparison.OrdinalIgnoreCase))
+        if (automationService.CurrentWindow == null && targetApp.Contains("Notepad", StringComparison.OrdinalIgnoreCase))
         {
             Console.WriteLine($"⚠️  Window not found. Launching Notepad...");
             try
@@ -89,8 +89,8 @@ class Program
                 System.Diagnostics.Process.Start("notepad.exe");
                 await Task.Delay(2000); // Ждем 2 секунды
 
-                window = automationService.FindWindow(targetApp);
-                if (window != null)
+                automationService.FindWindow(targetApp);
+                if (automationService.CurrentWindow != null)
                 {
                     Console.WriteLine($"✅ Notepad launched successfully!");
                 }
@@ -101,13 +101,13 @@ class Program
             }
         }
 
-        if (window == null)
+        if (automationService.CurrentWindow == null)
         {
             Console.WriteLine($"❌ Window '{targetApp}' not found!");
             Console.WriteLine("Please make sure the application is running.");
             return 1;
         }
-        Console.WriteLine($"✅ Found window: {window.Name}\n");
+        Console.WriteLine($"✅ Found window: {automationService.CurrentWindow.Name}\n");
 
         // Основной цикл автоматизации
         Console.WriteLine($"Task: {task}");
@@ -130,8 +130,15 @@ class Program
             try
             {
                 // 1. Получить текущее состояние UI
+                // Check if current window is still valid
+                if (automationService.CurrentWindow == null)
+                {
+                    Console.WriteLine("  ❌ Current window is no longer available");
+                    break;
+                }
+
                 Console.WriteLine("  → Scanning UI state...");
-                var uiState = automationService.GetWindowState(window);
+                var uiState = automationService.GetWindowState(automationService.CurrentWindow);
                 Console.WriteLine($"  → Found {uiState.Elements.Count} UI elements");
 
                 // Сохраняем состояние ДО выполнения команды для сравнения
@@ -257,11 +264,20 @@ class Program
                         Console.WriteLine();
                     }
 
-                    var success = await automationService.ExecuteCommand(window, cmd);
+                    var success = await automationService.ExecuteCommand(automationService.CurrentWindow, cmd);
 
                     // Проверяем состояние ПОСЛЕ выполнения для self-healing
                     await Task.Delay(300); // Даем время UI обновиться
-                    var newState = automationService.GetWindowState(window);
+
+                    // Check if window is still valid before getting state
+                    if (automationService.CurrentWindow == null)
+                    {
+                        Console.WriteLine("  ⚠️  Window no longer available after command execution");
+                        _actionHistory.Add($"FAILED: {cmd.Action} - Window closed");
+                        break;
+                    }
+
+                    var newState = automationService.GetWindowState(automationService.CurrentWindow);
 
                     // Deep state detection: check content changes
                     var newTextElements = newState.Elements.Where(e =>

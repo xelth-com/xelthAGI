@@ -22,10 +22,12 @@ public class UIAutomationService : IDisposable
     private static extern bool SetForegroundWindow(IntPtr hWnd);
 
     private readonly UIA3Automation _automation;
-    private Window? _currentWindow;
     private Dictionary<string, AutomationElement> _elementCache = new();
     private readonly HttpClient _httpClient;
     private readonly SystemService _systemService;
+
+    // Current active window (can be switched dynamically)
+    public Window? CurrentWindow { get; private set; }
 
     // Clipboard content storage for read_clipboard command
     public string? LastClipboardContent { get; private set; }
@@ -64,16 +66,16 @@ public class UIAutomationService : IDisposable
                 // 1. Точное совпадение по имени процесса (наивысший приоритет)
                 if (processName.Equals(processNameOrTitle, StringComparison.OrdinalIgnoreCase))
                 {
-                    _currentWindow = window.AsWindow();
-                    return _currentWindow;
+                    CurrentWindow = window.AsWindow();
+                    return CurrentWindow;
                 }
 
                 // 2. Точное совпадение или начало заголовка
                 if (title.Equals(processNameOrTitle, StringComparison.OrdinalIgnoreCase) ||
                     title.StartsWith(processNameOrTitle, StringComparison.OrdinalIgnoreCase))
                 {
-                    _currentWindow = window.AsWindow();
-                    return _currentWindow;
+                    CurrentWindow = window.AsWindow();
+                    return CurrentWindow;
                 }
 
                 // 3. Contains как fallback (низкий приоритет)
@@ -94,8 +96,26 @@ public class UIAutomationService : IDisposable
             }
         }
 
-        _currentWindow = fallbackMatch;
-        return _currentWindow;
+        CurrentWindow = fallbackMatch;
+        return CurrentWindow;
+    }
+
+    /// <summary>
+    /// Switches to a different window by title or process name
+    /// </summary>
+    public bool SwitchWindow(string titleOrProcess)
+    {
+        var newWindow = FindWindow(titleOrProcess);
+        if (newWindow != null)
+        {
+            Console.WriteLine($"  ✅ Switched to window: {newWindow.Name}");
+            return true;
+        }
+        else
+        {
+            Console.WriteLine($"  ❌ Window not found: {titleOrProcess}");
+            return false;
+        }
     }
 
     /// <summary>
@@ -181,7 +201,7 @@ public class UIAutomationService : IDisposable
         {
             var desktop = _automation.GetDesktop();
             // Prefer capturing specific window if available
-            var target = _currentWindow ?? desktop;
+            var target = CurrentWindow ?? desktop;
 
             using var image = FlaUI.Core.Capturing.Capture.Element(target).Bitmap;
 
@@ -521,6 +541,15 @@ public class UIAutomationService : IDisposable
                     LastOsOperationResult = _systemService.NetworkCheckPort(command.Text, port, portTimeout);
                     Console.WriteLine($"  🌐 Check port: {command.Text}:{port}");
                     return true;
+
+                // Window Management
+                case "switch_window":
+                    if (string.IsNullOrEmpty(command.Text))
+                    {
+                        Console.WriteLine("  ❌ switch_window requires window title or process name");
+                        return false;
+                    }
+                    return SwitchWindow(command.Text);
 
                 default:
                     Console.WriteLine($"Unknown command: {command.Action}");
