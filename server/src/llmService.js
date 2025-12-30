@@ -265,6 +265,47 @@ All OS commands return results prefixed with "ERROR:" if they fail:
 - OS_RESULT: ERROR: Access denied: C:\\\\System
 - OS_RESULT: ERROR: File not found: C:\\\\missing.txt
 
+**IT SUPPORT TOOLKIT** (Registry, Network & Environment):
+Advanced diagnostics and configuration tools for IT support tasks.
+
+**Environment Variables:**
+1. **os_getenv**: Read environment variable
+   - Example: {"action": "os_getenv", "text": "PATH", "message": "Checking PATH variable"}
+   - Result: OS_RESULT: PATH = C:\\\\Windows\\\\system32;...
+
+**Windows Registry Operations:**
+2. **reg_read**: Read registry value
+   - Example: {"action": "reg_read", "text": "HKLM\\\\Software\\\\Microsoft\\\\Windows\\\\CurrentVersion", "element_id": "ProgramFilesDir", "message": "Checking Program Files location"}
+   - Format: text = "ROOT\\\\KeyPath", element_id = "ValueName"
+   - Roots: HKLM, HKCU, HKCR, HKU, HKCC
+   - Result: OS_RESULT: ✅ HKLM\\\\Software\\\\...\\\\ProgramFilesDir = C:\\\\Program Files
+
+3. **reg_write**: Write registry value (requires Admin for HKLM)
+   - Example: {"action": "reg_write", "text": "HKCU\\\\Software\\\\MyApp", "element_id": "Setting", "x": 1, "message": "Updating app setting"}
+   - Format: text = "ROOT\\\\KeyPath", element_id = "ValueName", x = value
+   - WARNING: HKLM writes require Administrator privileges
+   - Result: OS_RESULT: ✅ Set HKCU\\\\Software\\\\MyApp\\\\Setting = 1
+
+**Network Diagnostics:**
+4. **net_ping**: Ping a host to check connectivity
+   - Example: {"action": "net_ping", "text": "google.com", "message": "Checking internet connectivity"}
+   - Optional: x = timeout in ms (default 2000)
+   - Result: OS_RESULT: ✅ Ping successful: google.com (142.250.185.78) - 15ms
+
+5. **net_port**: Check if TCP port is open
+   - Example: {"action": "net_port", "text": "localhost", "x": 3000, "message": "Checking if web server is running"}
+   - Format: text = host, x = port number
+   - Optional: y = timeout in ms (default 2000)
+   - Result: OS_RESULT: ✅ Port 3000 is OPEN on localhost
+
+**IT Support Use Cases:**
+- ✅ Check software versions via registry (e.g., HKLM\\\\Software\\\\...)
+- ✅ Read configuration from environment variables (PATH, JAVA_HOME, etc.)
+- ✅ Diagnose network connectivity issues (ping servers, check ports)
+- ✅ Verify services are running (check ports: 80, 443, 3306, etc.)
+- ✅ Troubleshoot application settings in HKCU registry
+- ⚠️  Registry writes require caution - can affect system stability
+
 **CLIPBOARD OPERATIONS** (Extract hard-to-read text):
 You can READ and WRITE clipboard content directly!
 
@@ -290,7 +331,7 @@ You can READ and WRITE clipboard content directly!
 
 **RESPONSE FORMAT** (JSON only):
 {
-    "action": "click|type|key|select|wait|download|inspect_screen|ask_user|read_clipboard|write_clipboard|os_list|os_read|os_delete|os_run|os_kill|os_mkdir|os_write|os_exists",
+    "action": "click|type|key|select|wait|download|inspect_screen|ask_user|read_clipboard|write_clipboard|os_list|os_read|os_delete|os_run|os_kill|os_mkdir|os_write|os_exists|os_getenv|reg_read|reg_write|net_ping|net_port",
     "element_id": "element_automation_id (OPTIONAL for coordinate clicks)",
     "x": "X coordinate (OPTIONAL for coordinate-based click)",
     "y": "Y coordinate (OPTIONAL for coordinate-based click)",

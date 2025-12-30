@@ -1,4 +1,7 @@
 using System.Diagnostics;
+using Microsoft.Win32;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 
 namespace SupportAgent.Services;
 
@@ -270,6 +273,186 @@ public class SystemService
         else
         {
             return $"NOT FOUND: {path}";
+        }
+    }
+
+    // ==================== IT SUPPORT TOOLKIT ====================
+
+    /// <summary>
+    /// Gets environment variable value
+    /// </summary>
+    public string GetEnvVar(string varName)
+    {
+        try
+        {
+            var value = Environment.GetEnvironmentVariable(varName);
+            if (value == null)
+            {
+                return $"NOT FOUND: Environment variable '{varName}' does not exist";
+            }
+            return $"{varName} = {value}";
+        }
+        catch (Exception ex)
+        {
+            return $"ERROR: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Reads Windows Registry value
+    /// Supports: HKLM, HKCU, HKCR, HKU, HKCC
+    /// </summary>
+    public string RegistryRead(string root, string keyPath, string valueName)
+    {
+        try
+        {
+            RegistryKey? baseKey = root.ToUpper() switch
+            {
+                "HKLM" => Registry.LocalMachine,
+                "HKCU" => Registry.CurrentUser,
+                "HKCR" => Registry.ClassesRoot,
+                "HKU" => Registry.Users,
+                "HKCC" => Registry.CurrentConfig,
+                _ => null
+            };
+
+            if (baseKey == null)
+            {
+                return $"ERROR: Invalid registry root '{root}'. Use: HKLM, HKCU, HKCR, HKU, or HKCC";
+            }
+
+            using var key = baseKey.OpenSubKey(keyPath);
+            if (key == null)
+            {
+                return $"ERROR: Registry key not found: {root}\\{keyPath}";
+            }
+
+            var value = key.GetValue(valueName);
+            if (value == null)
+            {
+                return $"ERROR: Value '{valueName}' not found in {root}\\{keyPath}";
+            }
+
+            return $"✅ {root}\\{keyPath}\\{valueName} = {value}";
+        }
+        catch (System.Security.SecurityException)
+        {
+            return $"ERROR: Access denied to registry key (may require Administrator)";
+        }
+        catch (Exception ex)
+        {
+            return $"ERROR: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Writes Windows Registry value
+    /// WARNING: Requires Administrator for HKLM writes
+    /// </summary>
+    public string RegistryWrite(string root, string keyPath, string valueName, string value)
+    {
+        try
+        {
+            RegistryKey? baseKey = root.ToUpper() switch
+            {
+                "HKLM" => Registry.LocalMachine,
+                "HKCU" => Registry.CurrentUser,
+                "HKCR" => Registry.ClassesRoot,
+                "HKU" => Registry.Users,
+                "HKCC" => Registry.CurrentConfig,
+                _ => null
+            };
+
+            if (baseKey == null)
+            {
+                return $"ERROR: Invalid registry root '{root}'. Use: HKLM, HKCU, HKCR, HKU, or HKCC";
+            }
+
+            using var key = baseKey.OpenSubKey(keyPath, writable: true);
+            if (key == null)
+            {
+                return $"ERROR: Registry key not found or not writable: {root}\\{keyPath}";
+            }
+
+            key.SetValue(valueName, value);
+            return $"✅ Set {root}\\{keyPath}\\{valueName} = {value}";
+        }
+        catch (System.Security.SecurityException)
+        {
+            return $"ERROR: Access denied (Administrator required for HKLM writes)";
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return $"ERROR: Unauthorized access (key may be read-only or require elevation)";
+        }
+        catch (Exception ex)
+        {
+            return $"ERROR: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Pings a host to check network connectivity
+    /// </summary>
+    public string NetworkPing(string host, int timeout = 2000)
+    {
+        try
+        {
+            using var ping = new Ping();
+            var reply = ping.Send(host, timeout);
+
+            if (reply.Status == IPStatus.Success)
+            {
+                return $"✅ Ping successful: {host} ({reply.Address}) - {reply.RoundtripTime}ms";
+            }
+            else
+            {
+                return $"❌ Ping failed: {host} - Status: {reply.Status}";
+            }
+        }
+        catch (PingException ex)
+        {
+            return $"ERROR: Ping failed - {ex.Message}";
+        }
+        catch (Exception ex)
+        {
+            return $"ERROR: {ex.Message}";
+        }
+    }
+
+    /// <summary>
+    /// Checks if a TCP port is open on a host
+    /// </summary>
+    public string NetworkCheckPort(string host, int port, int timeout = 2000)
+    {
+        try
+        {
+            using var client = new TcpClient();
+            var connectTask = client.ConnectAsync(host, port);
+
+            if (connectTask.Wait(timeout))
+            {
+                if (client.Connected)
+                {
+                    return $"✅ Port {port} is OPEN on {host}";
+                }
+                else
+                {
+                    return $"❌ Port {port} is CLOSED on {host}";
+                }
+            }
+            else
+            {
+                return $"❌ Port {port} on {host} - Connection timeout ({timeout}ms)";
+            }
+        }
+        catch (SocketException ex)
+        {
+            return $"❌ Port {port} is CLOSED on {host} - {ex.Message}";
+        }
+        catch (Exception ex)
+        {
+            return $"ERROR: {ex.Message}";
         }
     }
 }

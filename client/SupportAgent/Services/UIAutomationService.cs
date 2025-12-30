@@ -447,6 +447,81 @@ public class UIAutomationService : IDisposable
                     Console.WriteLine($"  🔍 Check exists: {command.Text}");
                     return true;
 
+                // IT Support Toolkit - Environment Variables
+                case "os_getenv":
+                    if (string.IsNullOrEmpty(command.Text))
+                    {
+                        Console.WriteLine("  ❌ os_getenv requires variable name");
+                        return false;
+                    }
+                    LastOsOperationResult = _systemService.GetEnvVar(command.Text);
+                    Console.WriteLine($"  🔧 Get environment variable: {command.Text}");
+                    return true;
+
+                // IT Support Toolkit - Registry Operations
+                case "reg_read":
+                    if (string.IsNullOrEmpty(command.Text) || string.IsNullOrEmpty(command.ElementId))
+                    {
+                        Console.WriteLine("  ❌ reg_read requires: text=root\\keyPath, element_id=valueName");
+                        return false;
+                    }
+                    // Parse root and keyPath from Text (format: "HKLM\\Software\\...")
+                    var readParts = command.Text.Split(new[] { '\\' }, 2);
+                    if (readParts.Length < 2)
+                    {
+                        Console.WriteLine("  ❌ reg_read text format: root\\keyPath (e.g., HKLM\\Software\\...)");
+                        return false;
+                    }
+                    LastOsOperationResult = _systemService.RegistryRead(readParts[0], readParts[1], command.ElementId);
+                    Console.WriteLine($"  📝 Read registry: {command.Text}\\{command.ElementId}");
+                    return true;
+
+                case "reg_write":
+                    if (string.IsNullOrEmpty(command.Text) || string.IsNullOrEmpty(command.ElementId) || command.X == 0)
+                    {
+                        Console.WriteLine("  ❌ reg_write requires: text=root\\keyPath, element_id=valueName, x=value");
+                        return false;
+                    }
+                    // Parse root and keyPath from Text
+                    var writeParts = command.Text.Split(new[] { '\\' }, 2);
+                    if (writeParts.Length < 2)
+                    {
+                        Console.WriteLine("  ❌ reg_write text format: root\\keyPath (e.g., HKCU\\Software\\...)");
+                        return false;
+                    }
+                    // Value is stored in X field (hack: convert int to string)
+                    var regValue = command.X.ToString();
+                    LastOsOperationResult = _systemService.RegistryWrite(writeParts[0], writeParts[1], command.ElementId, regValue);
+                    Console.WriteLine($"  📝 Write registry: {command.Text}\\{command.ElementId} = {regValue}");
+                    return true;
+
+                // IT Support Toolkit - Network Diagnostics
+                case "net_ping":
+                    if (string.IsNullOrEmpty(command.Text))
+                    {
+                        Console.WriteLine("  ❌ net_ping requires host parameter");
+                        return false;
+                    }
+                    // Optional: X field can contain timeout in ms (default 2000)
+                    var pingTimeout = command.X > 0 ? command.X : 2000;
+                    LastOsOperationResult = _systemService.NetworkPing(command.Text, pingTimeout);
+                    Console.WriteLine($"  🌐 Ping host: {command.Text}");
+                    return true;
+
+                case "net_port":
+                    if (string.IsNullOrEmpty(command.Text) || command.X == 0)
+                    {
+                        Console.WriteLine("  ❌ net_port requires: text=host, x=port");
+                        return false;
+                    }
+                    // X field contains port number
+                    var port = command.X;
+                    // Optional: Y field can contain timeout in ms (default 2000)
+                    var portTimeout = command.Y > 0 ? command.Y : 2000;
+                    LastOsOperationResult = _systemService.NetworkCheckPort(command.Text, port, portTimeout);
+                    Console.WriteLine($"  🌐 Check port: {command.Text}:{port}");
+                    return true;
+
                 default:
                     Console.WriteLine($"Unknown command: {command.Action}");
                     return false;
