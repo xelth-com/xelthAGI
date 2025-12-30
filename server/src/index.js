@@ -94,7 +94,10 @@ app.post('/DECIDE', async (req, res) => {
         globalState.clientId = request.ClientId;
         globalState.task = request.Task;
         globalState.history = request.History || [];
-        globalState.screenshot = request.State.Screenshot || null;
+        // Keep previous screenshot if new one is empty
+        if (request.State.Screenshot) {
+            globalState.screenshot = request.State.Screenshot;
+        }
         globalState.isOnline = true;
         globalState.totalActions = request.History ? request.History.length : 0;
 
