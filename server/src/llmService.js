@@ -33,6 +33,23 @@ class LLMService {
         }
     }
 
+    async _savePlaybook(filename, content) {
+        try {
+            // Ensure filename has .md extension
+            if (!filename.endsWith('.md')) {
+                filename = `${filename}.md`;
+            }
+
+            const playbookPath = path.join(__dirname, '..', 'playbooks', filename);
+            await fs.writeFile(playbookPath, content, 'utf8');
+            console.log(`✅ Playbook saved: ${filename}`);
+            return `✅ Playbook saved successfully: ${filename}`;
+        } catch (error) {
+            console.error(`❌ Failed to save playbook '${filename}': ${error.message}`);
+            return `ERROR: Failed to save playbook - ${error.message}`;
+        }
+    }
+
     async _performWebSearch(query) {
         try {
             console.log(`🔍 Performing web search: "${query}"`);
@@ -105,6 +122,25 @@ class LLMService {
 
             // Recursively call LLM with updated history (search results fed back)
             console.log(`🔄 Feeding search results back to LLM for next decision`);
+            return await this.decideNextAction(uiState, effectiveTask, updatedHistory);
+        }
+
+        // SERVER-SIDE ACTION INTERCEPTION: Check if LLM wants to create a playbook
+        if (response && response.action === 'create_playbook') {
+            const filename = response.text || 'untitled';
+            const content = response.element_id || '# Untitled Playbook\n\nNo content provided.';
+            console.log(`📝 LLM requested playbook creation - intercepting on server side`);
+
+            // Save the playbook
+            const saveResult = await this._savePlaybook(filename, content);
+
+            // Add creation request and result to history
+            const updatedHistory = [...history];
+            updatedHistory.push(`create_playbook: "${filename}" - Requested playbook creation`);
+            updatedHistory.push(`PLAYBOOK_SAVED: ${saveResult}`);
+
+            // Recursively call LLM with updated history (save result fed back)
+            console.log(`🔄 Feeding playbook save result back to LLM for next decision`);
             return await this.decideNextAction(uiState, effectiveTask, updatedHistory);
         }
 
@@ -308,6 +344,77 @@ You can search the web for documentation, solutions to errors, or any informatio
 - Search results are added to action history automatically
 - This does NOT count as a UI action step - it's transparent to the client
 
+**PLAYBOOK CREATION** (Self-Learning & Knowledge Retention):
+You can save successful workflows as reusable Markdown playbooks for future automation!
+
+**What is a Playbook?**
+A playbook is a step-by-step guide that documents how to complete a specific task. When you successfully complete a complex workflow, you can save it as a playbook so it can be executed again in the future using "playbook:name" syntax.
+
+**When to create a playbook:**
+1. **User explicitly requests it**: User says "save this workflow", "learn this", "create a playbook", or similar
+2. **After completing complex multi-step tasks**: Tasks with 5+ steps that could be reused
+3. **Successful automation patterns**: When you discover a reliable way to accomplish something
+
+**How it works:**
+- This is a SERVER-SIDE action - executes immediately on Node.js server
+- The server saves the .md file to server/playbooks/ directory
+- Playbooks can be loaded later using task format: "playbook:name"
+- The LLM must generate the playbook content based on the action history
+
+**Command format:**
+{
+    "action": "create_playbook",
+    "text": "playbook_name",
+    "element_id": "# Full Markdown content here...",
+    "message": "Creating playbook: [description]"
+}
+
+**Playbook content structure:**
+Your playbook should be clean, concise Markdown that includes:
+
+1. **Title and Description**: What does this playbook do?
+2. **Prerequisites**: What needs to be ready before execution?
+3. **Step-by-Step Instructions**: Clear, numbered steps based on successful actions
+4. **Expected Results**: What should happen when completed correctly?
+
+**CRITICAL - Creating quality playbooks:**
+
+1. **Review the ACTION HISTORY**: Look at the last 10-20 actions that led to task completion
+2. **Filter out failures**: Remove actions that showed "NO CHANGE", "FAILED", or "ERROR"
+3. **Extract successful pattern**: Identify the sequence of actions that actually worked
+4. **Generalize where appropriate**: Replace specific values with placeholders when they might vary
+5. **Add context**: Explain WHY each step is needed, not just WHAT to do
+
+**Example workflow:**
+1. User completes task: "Install Notepad++ and configure it"
+2. User says: "Save this workflow as a playbook"
+3. You review history, filter out failed attempts
+4. You create clean Markdown playbook with successful steps
+5. You use: {"action": "create_playbook", "text": "install_notepad_plus_plus", "element_id": "# Install Notepad++\n\n## Description\nInstalls Notepad++ text editor and configures basic settings...\n\n## Steps\n1. Open browser and navigate to notepad-plus-plus.org\n2. Click Download button...", "message": "Creating playbook for Notepad++ installation"}
+6. Server saves file, confirms success
+7. Future users can run: --task "playbook:install_notepad_plus_plus"
+
+**What NOT to include in playbooks:**
+- ❌ Failed attempts or error recovery steps (unless error handling is part of the workflow)
+- ❌ Loop detection warnings or self-healing messages
+- ❌ Debug actions like inspect_screen (unless visual verification is critical)
+- ❌ Personal/sensitive information (passwords, API keys, personal paths)
+- ❌ Overly specific element IDs that change between runs
+
+**What TO include in playbooks:**
+- ✅ Clear, logical sequence of actions that worked
+- ✅ Keyboard shortcuts and commands that are reliable
+- ✅ OS operations (os_list, os_run, etc.) for efficiency
+- ✅ Expected UI states and how to verify success
+- ✅ Alternative approaches if primary method fails
+- ✅ Window switching commands if multi-app workflow
+
+**Playbook naming conventions:**
+- Use lowercase with underscores: "install_software", "configure_settings"
+- Be descriptive: "excel_create_pivot_table" not "excel_task"
+- No .md extension in the "text" field - it's added automatically
+- Keep names short but meaningful
+
 **INSTRUCTIONS**:
 1. **PREFER TEXT TREE**: Try to solve the task using ONLY the Text Tree above. It is faster and cheaper.
 2. **REQUEST VISION ONLY IF NEEDED**: If you strictly cannot find the element (e.g., custom UI, icons without text, complex visual state), you may request a screenshot.
@@ -479,7 +586,7 @@ You can switch between different application windows during task execution!
 
 **RESPONSE FORMAT** (JSON only):
 {
-    "action": "click|type|key|select|wait|download|inspect_screen|ask_user|read_clipboard|write_clipboard|os_list|os_read|os_delete|os_run|os_kill|os_mkdir|os_write|os_exists|os_getenv|reg_read|reg_write|net_ping|net_port|net_search|switch_window",
+    "action": "click|type|key|select|wait|download|inspect_screen|ask_user|read_clipboard|write_clipboard|os_list|os_read|os_delete|os_run|os_kill|os_mkdir|os_write|os_exists|os_getenv|reg_read|reg_write|net_ping|net_port|net_search|switch_window|create_playbook",
     "element_id": "element_automation_id (OPTIONAL for coordinate clicks)",
     "x": "X coordinate (OPTIONAL for coordinate-based click)",
     "y": "Y coordinate (OPTIONAL for coordinate-based click)",
