@@ -366,7 +366,17 @@ public class UIAutomationService : IDisposable
         if (element == null) return false;
 
         element.Focus();
-        Keyboard.Type(text);
+        Thread.Sleep(100); // Даем время на фокус
+
+        // МЕДЛЕННЫЙ ПОСИМВОЛЬНЫЙ ВВОД для надежности
+        // Keyboard.Type() слишком быстрый и теряет символы
+        foreach (char c in text)
+        {
+            Keyboard.Type(c.ToString());
+            Thread.Sleep(20); // Задержка между символами (20ms = надежно)
+        }
+
+        Console.WriteLine($"  ✍️  Typed {text.Length} characters: \"{text}\"");
         return true;
     }
 
