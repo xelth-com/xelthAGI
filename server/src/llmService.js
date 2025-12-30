@@ -65,6 +65,55 @@ class LLMService {
         const hasScreenshot = !!screenshotBase64;
         const visionMode = hasScreenshot ? 'VISUAL MODE (Image provided)' : 'TEXT-ONLY MODE (Economy)';
 
+        // LOOP DETECTION: Analyze last actions for repeated patterns
+        let loopWarning = '';
+        if (history && history.length >= 3) {
+            const lastActions = history.slice(-5); // Check last 5 actions
+
+            // Extract action type (first word: click, type, key, etc.)
+            const actionTypes = lastActions.map(h => {
+                const match = h.match(/^(\w+)\s/);
+                return match ? match[1] : '';
+            });
+
+            // Count consecutive identical action types
+            const lastAction = actionTypes[actionTypes.length - 1];
+            let consecutiveCount = 0;
+            for (let i = actionTypes.length - 1; i >= 0; i--) {
+                if (actionTypes[i] === lastAction) {
+                    consecutiveCount++;
+                } else {
+                    break;
+                }
+            }
+
+            // Count "NO CHANGE" markers in last actions
+            const unchangedCount = lastActions.filter(h => h.includes('NO CHANGE')).length;
+
+            if (consecutiveCount >= 3 || unchangedCount >= 3) {
+                loopWarning = `
+
+**🚨 CRITICAL WARNING: INFINITE LOOP DETECTED! 🚨**
+
+SYSTEM ANALYSIS:
+- Same action type repeated ${consecutiveCount} times in a row
+- ${unchangedCount} of last ${lastActions.length} actions show "NO CHANGE"
+- YOU ARE STUCK IN A LOOP!
+
+**IMMEDIATE ACTION REQUIRED:**
+1. STOP repeating the same action type (${lastAction})
+2. This approach is NOT working - the UI is not responding as expected
+3. Switch to a COMPLETELY DIFFERENT strategy:
+   - If clicking failed -> try keyboard commands (Ctrl+A, Delete, etc.)
+   - If typing failed -> request screenshot via inspect_screen
+   - If element not found -> try coordinate-based click or different element
+4. DO NOT click different element IDs if they all show "NO CHANGE" - the problem is not the element!
+
+**YOU MUST CHANGE YOUR APPROACH NOW OR YOU WILL WASTE ALL 50 STEPS!**
+`;
+            }
+        }
+
         return `You are a UI automation agent. Your task is to help complete the following objective:
 
 **TASK**: ${task}
@@ -72,6 +121,7 @@ class LLMService {
 **CURRENT WINDOW**: ${uiState.WindowTitle || 'Unknown'}
 
 **MODE**: ${visionMode}
+${loopWarning}
 
 **ACTION HISTORY** (last 10 actions):
 ${historyText}
@@ -87,7 +137,36 @@ Analyze the current UI state and determine the NEXT SINGLE ACTION to complete th
 **SELF-HEALING LOGIC** (CRITICAL):
 Look at the LAST action in the history above. Check if the UI state changed:
 - Compare the state markers: [State: Title(N) -> NewTitle(M)]
+- Check for [Content Modified] markers - this means text content changed (SUCCESS!)
 - If state shows "NO CHANGE" - the action FAILED! DO NOT REPEAT IT!
+
+**CRITICAL SELF-HEALING RULES:**
+
+1. **Look at last 3 actions in history**
+2. **If you see "NO CHANGE" 3+ times in a row for SAME action type (e.g., all "click"):**
+   - STOP clicking immediately
+   - This means clicks are NOT working
+   - Switch to alternative: use keyboard commands (Ctrl+A + Delete), request screenshot, or try different approach
+
+**ABSOLUTELY FORBIDDEN:**
+- ❌ Repeating same action type >3 times when seeing "NO CHANGE"
+- ❌ Clicking different element IDs when all show "NO CHANGE" (Notepad generates new IDs each time)
+- ❌ Ignoring "NO CHANGE" warnings and continuing the same strategy
+- ❌ Making more than 5 attempts with any single approach
+
+**EXAMPLE OF BAD BEHAVIOR (DO NOT DO THIS):**
+History shows:
+- click btn_1 [NO CHANGE]
+- click btn_2 [NO CHANGE]
+- click btn_3 [NO CHANGE]
+→ STOP clicking! Elements are not the problem. Try: Ctrl+A + Delete to clear, or request screenshot
+
+**CORRECT BEHAVIOR:**
+After 2-3 failed attempts with same action type:
+1. STOP and analyze why it's failing
+2. Try keyboard alternative (Ctrl+A, Delete, Ctrl+V, etc.)
+3. If still stuck, request screenshot via inspect_screen
+4. NEVER repeat the same failing pattern
 
 When an action fails (NO CHANGE or FAILED marker):
 1. **ANALYZE WHY**: The element might not exist, be disabled, or coordinates wrong

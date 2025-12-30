@@ -99,6 +99,7 @@ class Program
         // STATE TRACKING для self-healing
         string previousTitle = "";
         int previousElementCount = 0;
+        string previousContentHash = ""; // Hash of text element Values for deep state detection
 
         while (stepCount < maxSteps)
         {
@@ -115,6 +116,13 @@ class Program
                 // Сохраняем состояние ДО выполнения команды для сравнения
                 previousTitle = uiState.WindowTitle;
                 previousElementCount = uiState.Elements.Count;
+
+                // Capture content hash BEFORE action (deep state detection)
+                var textElements = uiState.Elements.Where(e =>
+                    e.Type.Contains("Text", StringComparison.OrdinalIgnoreCase) ||
+                    e.Type.Contains("Edit", StringComparison.OrdinalIgnoreCase) ||
+                    e.Type.Contains("Document", StringComparison.OrdinalIgnoreCase));
+                previousContentHash = string.Join("|", textElements.Select(e => e.Value ?? ""));
 
                 // ECONOMY MODE: Add screenshot only if requested
                 if (nextScreenshotQuality > 0)
@@ -182,15 +190,35 @@ class Program
                     await Task.Delay(300); // Даем время UI обновиться
                     var newState = automationService.GetWindowState(window);
 
+                    // Deep state detection: check content changes
+                    var newTextElements = newState.Elements.Where(e =>
+                        e.Type.Contains("Text", StringComparison.OrdinalIgnoreCase) ||
+                        e.Type.Contains("Edit", StringComparison.OrdinalIgnoreCase) ||
+                        e.Type.Contains("Document", StringComparison.OrdinalIgnoreCase));
+                    var newContentHash = string.Join("|", newTextElements.Select(e => e.Value ?? ""));
+
+                    bool titleChanged = newState.WindowTitle != previousTitle;
+                    bool countChanged = newState.Elements.Count != previousElementCount;
+                    bool contentChanged = newContentHash != previousContentHash;
+
                     string stateChange = "";
-                    if (newState.WindowTitle != previousTitle || newState.Elements.Count != previousElementCount)
+                    if (titleChanged || countChanged || contentChanged)
                     {
-                        stateChange = $" [State: {previousTitle}({previousElementCount}) -> {newState.WindowTitle}({newState.Elements.Count})]";
-                        Console.WriteLine($"  📊 UI State changed:{stateChange}");
+                        if (contentChanged)
+                        {
+                            // Content changed - this is a success!
+                            stateChange = $" [Content Modified: {previousContentHash.Length}→{newContentHash.Length} chars]";
+                            Console.WriteLine($"  📝 Content changed:{stateChange}");
+                        }
+                        else
+                        {
+                            stateChange = $" [State: {previousTitle}({previousElementCount}) -> {newState.WindowTitle}({newState.Elements.Count})]";
+                            Console.WriteLine($"  📊 UI State changed:{stateChange}");
+                        }
                     }
                     else
                     {
-                        stateChange = $" [State: NO CHANGE - {previousTitle}({previousElementCount})]";
+                        stateChange = $" [State: NO CHANGE - {previousTitle}({previousElementCount}) - Content: {previousContentHash.Length} chars]";
                         Console.WriteLine($"  ⚠️  UI State unchanged - action may have failed!");
                     }
 
