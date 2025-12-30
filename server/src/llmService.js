@@ -508,7 +508,7 @@ Respond with JSON only, no additional text.`;
                             "Do not include markdown code blocks or any formatting - return raw JSON."
                         ],
                         temperature: modelConfig.temperature,
-                        maxOutputTokens: 2048
+                        maxOutputTokens: 8192
                     }
                 });
 
