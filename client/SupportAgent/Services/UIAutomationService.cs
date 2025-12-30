@@ -25,14 +25,19 @@ public class UIAutomationService : IDisposable
     private Window? _currentWindow;
     private Dictionary<string, AutomationElement> _elementCache = new();
     private readonly HttpClient _httpClient;
+    private readonly SystemService _systemService;
 
     // Clipboard content storage for read_clipboard command
     public string? LastClipboardContent { get; private set; }
+
+    // OS operation result storage
+    public string? LastOsOperationResult { get; private set; }
 
     public UIAutomationService()
     {
         _automation = new UIA3Automation();
         _httpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(5) }; // Timeout for large files
+        _systemService = new SystemService();
     }
 
     /// <summary>
@@ -350,6 +355,97 @@ public class UIAutomationService : IDisposable
                         return false;
                     }
                     return SetClipboardText(command.Text);
+
+                // OS / System Operations
+                case "os_list":
+                    if (string.IsNullOrEmpty(command.Text))
+                    {
+                        Console.WriteLine("  ❌ os_list requires path parameter");
+                        return false;
+                    }
+                    LastOsOperationResult = _systemService.ListDirectory(command.Text);
+                    Console.WriteLine($"  📁 Listed directory: {command.Text}");
+                    return true;
+
+                case "os_delete":
+                    if (string.IsNullOrEmpty(command.Text))
+                    {
+                        Console.WriteLine("  ❌ os_delete requires path parameter");
+                        return false;
+                    }
+                    LastOsOperationResult = _systemService.DeletePath(command.Text);
+                    Console.WriteLine($"  🗑️  Delete operation: {command.Text}");
+                    return true;
+
+                case "os_read":
+                    if (string.IsNullOrEmpty(command.Text))
+                    {
+                        Console.WriteLine("  ❌ os_read requires path parameter");
+                        return false;
+                    }
+                    // ElementId can optionally contain max chars (default 2000)
+                    int maxChars = 2000;
+                    if (!string.IsNullOrEmpty(command.ElementId) && int.TryParse(command.ElementId, out int parsed))
+                    {
+                        maxChars = parsed;
+                    }
+                    LastOsOperationResult = _systemService.ReadFile(command.Text, maxChars);
+                    Console.WriteLine($"  📄 Read file: {command.Text}");
+                    return true;
+
+                case "os_run":
+                    if (string.IsNullOrEmpty(command.Text))
+                    {
+                        Console.WriteLine("  ❌ os_run requires executable path");
+                        return false;
+                    }
+                    // ElementId can optionally contain arguments
+                    var args = command.ElementId ?? "";
+                    LastOsOperationResult = _systemService.RunProcess(command.Text, args);
+                    Console.WriteLine($"  🚀 Run process: {command.Text} {args}");
+                    return true;
+
+                case "os_kill":
+                    if (string.IsNullOrEmpty(command.Text))
+                    {
+                        Console.WriteLine("  ❌ os_kill requires process name");
+                        return false;
+                    }
+                    LastOsOperationResult = _systemService.KillProcess(command.Text);
+                    Console.WriteLine($"  ⚡ Kill process: {command.Text}");
+                    return true;
+
+                case "os_mkdir":
+                    if (string.IsNullOrEmpty(command.Text))
+                    {
+                        Console.WriteLine("  ❌ os_mkdir requires path parameter");
+                        return false;
+                    }
+                    LastOsOperationResult = _systemService.CreateDirectory(command.Text);
+                    Console.WriteLine($"  📁 Create directory: {command.Text}");
+                    return true;
+
+                case "os_write":
+                    if (string.IsNullOrEmpty(command.Text))
+                    {
+                        Console.WriteLine("  ❌ os_write requires path parameter");
+                        return false;
+                    }
+                    // ElementId contains the content to write
+                    var content = command.ElementId ?? "";
+                    LastOsOperationResult = _systemService.WriteFile(command.Text, content);
+                    Console.WriteLine($"  💾 Write file: {command.Text}");
+                    return true;
+
+                case "os_exists":
+                    if (string.IsNullOrEmpty(command.Text))
+                    {
+                        Console.WriteLine("  ❌ os_exists requires path parameter");
+                        return false;
+                    }
+                    LastOsOperationResult = _systemService.CheckExists(command.Text);
+                    Console.WriteLine($"  🔍 Check exists: {command.Text}");
+                    return true;
 
                 default:
                     Console.WriteLine($"Unknown command: {command.Action}");

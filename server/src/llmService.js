@@ -214,6 +214,57 @@ Then you can continue with the task using the information they provided.
    - "50" for finding buttons/icons (Medium quality)
    - "70" for reading small text/captchas (High quality, expensive)
 
+**OS / SYSTEM COMMANDS** (Fast file operations & process control):
+For file management, log reading, and system tasks, use OS commands instead of UI automation - MUCH faster!
+
+**Available Commands:**
+
+1. **os_list**: List files/directories
+   - Example: {"action": "os_list", "text": "C:\\\\Temp", "message": "Listing temp folder contents"}
+   - Result appears as: OS_RESULT: [DIR] folder1\n[FILE] file.txt (25 KB)
+
+2. **os_read**: Read text file content (max 2000 chars by default)
+   - Example: {"action": "os_read", "text": "C:\\\\logs\\\\app.log", "message": "Reading application log"}
+   - Optional: Set element_id to custom max chars: {"element_id": "5000"}
+   - Result appears as: OS_RESULT: file content here...
+
+3. **os_delete**: Delete file or directory (recursive)
+   - Example: {"action": "os_delete", "text": "C:\\\\Temp\\\\cache", "message": "Clearing cache folder"}
+   - Result: OS_RESULT: ✅ Deleted directory: C:\\\\Temp\\\\cache
+
+4. **os_run**: Launch application or process
+   - Example: {"action": "os_run", "text": "notepad.exe", "element_id": "C:\\\\file.txt", "message": "Opening file in Notepad"}
+   - text = executable path, element_id = arguments (optional)
+   - Result: OS_RESULT: ✅ Started process: notepad.exe (PID: 1234)
+
+5. **os_kill**: Kill process by name
+   - Example: {"action": "os_kill", "text": "notepad", "message": "Closing all Notepad instances"}
+   - Result: OS_RESULT: ✅ Killed 2 process(es) named 'notepad'
+
+6. **os_mkdir**: Create directory
+   - Example: {"action": "os_mkdir", "text": "C:\\\\Projects\\\\NewFolder", "message": "Creating project folder"}
+
+7. **os_write**: Write text to file (overwrites)
+   - Example: {"action": "os_write", "text": "C:\\\\output.txt", "element_id": "Hello World", "message": "Writing output"}
+   - text = file path, element_id = content to write
+
+8. **os_exists**: Check if file/directory exists
+   - Example: {"action": "os_exists", "text": "C:\\\\file.txt", "message": "Checking if file exists"}
+   - Result: OS_RESULT: EXISTS: File - file.txt (25 KB) OR NOT FOUND
+
+**When to use OS commands:**
+- ✅ Clearing folders (os_delete faster than clicking in Explorer)
+- ✅ Reading log files (os_read instead of opening in Notepad)
+- ✅ Launching applications (os_run instead of Start Menu navigation)
+- ✅ Checking if files exist before operations (os_exists)
+- ✅ Creating folder structures (os_mkdir)
+- ❌ Don't use for interactive tasks requiring UI (use regular automation)
+
+**Error Handling:**
+All OS commands return results prefixed with "ERROR:" if they fail:
+- OS_RESULT: ERROR: Access denied: C:\\\\System
+- OS_RESULT: ERROR: File not found: C:\\\\missing.txt
+
 **CLIPBOARD OPERATIONS** (Extract hard-to-read text):
 You can READ and WRITE clipboard content directly!
 
@@ -239,7 +290,7 @@ You can READ and WRITE clipboard content directly!
 
 **RESPONSE FORMAT** (JSON only):
 {
-    "action": "click|type|key|select|wait|download|inspect_screen|ask_user|read_clipboard|write_clipboard",
+    "action": "click|type|key|select|wait|download|inspect_screen|ask_user|read_clipboard|write_clipboard|os_list|os_read|os_delete|os_run|os_kill|os_mkdir|os_write|os_exists",
     "element_id": "element_automation_id (OPTIONAL for coordinate clicks)",
     "x": "X coordinate (OPTIONAL for coordinate-based click)",
     "y": "Y coordinate (OPTIONAL for coordinate-based click)",

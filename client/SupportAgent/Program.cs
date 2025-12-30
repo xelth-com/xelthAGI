@@ -259,6 +259,17 @@ class Program
                             _actionHistory.Add($"CLIPBOARD_CONTENT: \"{truncatedContent}\"");
                             Console.WriteLine($"  ✅ Clipboard content logged to history");
                         }
+                        // Special handling for OS commands - include result in history
+                        else if (cmd.Action.ToLower().StartsWith("os_"))
+                        {
+                            var osResult = automationService.LastOsOperationResult ?? "";
+                            // Truncate if too long to avoid bloating history
+                            var truncatedResult = osResult.Length > 1000
+                                ? osResult.Substring(0, 1000) + "... (truncated)"
+                                : osResult;
+                            _actionHistory.Add($"OS_RESULT: {truncatedResult}");
+                            Console.WriteLine($"  ✅ OS operation result logged to history");
+                        }
                         else
                         {
                             _actionHistory.Add($"{cmd.Action} {cmd.ElementId} {cmd.Text}{stateChange}");
