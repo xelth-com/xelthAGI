@@ -26,6 +26,9 @@ public class UIAutomationService : IDisposable
     private Dictionary<string, AutomationElement> _elementCache = new();
     private readonly HttpClient _httpClient;
 
+    // Clipboard content storage for read_clipboard command
+    public string? LastClipboardContent { get; private set; }
+
     public UIAutomationService()
     {
         _automation = new UIA3Automation();
@@ -335,6 +338,19 @@ public class UIAutomationService : IDisposable
                     // Return true to indicate acknowledgment
                     return true;
 
+                case "read_clipboard":
+                    var clipboardContent = GetClipboardText();
+                    Console.WriteLine($"  📋 Read clipboard: {clipboardContent.Length} characters");
+                    return true;
+
+                case "write_clipboard":
+                    if (string.IsNullOrEmpty(command.Text))
+                    {
+                        Console.WriteLine("  ❌ write_clipboard requires text parameter");
+                        return false;
+                    }
+                    return SetClipboardText(command.Text);
+
                 default:
                     Console.WriteLine($"Unknown command: {command.Action}");
                     return false;
@@ -569,6 +585,43 @@ public class UIAutomationService : IDisposable
         catch (Exception ex)
         {
             Console.WriteLine($"  ❌ Error downloading file: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Gets text from clipboard using TextCopy library (handles STA thread automatically)
+    /// </summary>
+    public string GetClipboardText()
+    {
+        try
+        {
+            var clipboardText = TextCopy.ClipboardService.GetText() ?? "";
+            LastClipboardContent = clipboardText;
+            return clipboardText;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  ❌ Error reading clipboard: {ex.Message}");
+            LastClipboardContent = "";
+            return "";
+        }
+    }
+
+    /// <summary>
+    /// Sets text to clipboard using TextCopy library (handles STA thread automatically)
+    /// </summary>
+    public bool SetClipboardText(string text)
+    {
+        try
+        {
+            TextCopy.ClipboardService.SetText(text);
+            Console.WriteLine($"  ✅ Clipboard set ({text.Length} characters)");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  ❌ Error writing to clipboard: {ex.Message}");
             return false;
         }
     }

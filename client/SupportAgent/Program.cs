@@ -248,8 +248,22 @@ class Program
 
                     if (success)
                     {
-                        _actionHistory.Add($"{cmd.Action} {cmd.ElementId} {cmd.Text}{stateChange}");
-                        Console.WriteLine("  ✅ Command executed");
+                        // Special handling for read_clipboard - include content in history
+                        if (cmd.Action.ToLower() == "read_clipboard")
+                        {
+                            var clipboardContent = automationService.LastClipboardContent ?? "";
+                            // Truncate if too long to avoid bloating history
+                            var truncatedContent = clipboardContent.Length > 1000
+                                ? clipboardContent.Substring(0, 1000) + "... (truncated)"
+                                : clipboardContent;
+                            _actionHistory.Add($"CLIPBOARD_CONTENT: \"{truncatedContent}\"");
+                            Console.WriteLine($"  ✅ Clipboard content logged to history");
+                        }
+                        else
+                        {
+                            _actionHistory.Add($"{cmd.Action} {cmd.ElementId} {cmd.Text}{stateChange}");
+                            Console.WriteLine("  ✅ Command executed");
+                        }
                     }
                     else
                     {

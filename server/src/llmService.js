@@ -214,13 +214,36 @@ Then you can continue with the task using the information they provided.
    - "50" for finding buttons/icons (Medium quality)
    - "70" for reading small text/captchas (High quality, expensive)
 
+**CLIPBOARD OPERATIONS** (Extract hard-to-read text):
+You can READ and WRITE clipboard content directly!
+
+**When to use:**
+- Text is not accessible via UI Automation tree (custom rendered text, images with text)
+- Need to extract selected text: Select element -> Ctrl+C -> read_clipboard
+- Need to paste pre-formatted text: write_clipboard -> Ctrl+V
+
+**Commands:**
+1. **read_clipboard**: Reads current clipboard content
+   - Example: {"action": "read_clipboard", "message": "Reading clipboard to extract copied text"}
+   - The clipboard content will appear in next history as: CLIPBOARD_CONTENT: "text here"
+
+2. **write_clipboard**: Writes text to clipboard (without pasting)
+   - Example: {"action": "write_clipboard", "text": "your text", "message": "Setting clipboard for paste"}
+   - Then use: {"action": "key", "text": "Ctrl+V"} to paste
+
+**Common pattern for stubborn UI elements:**
+1. Click element or use Ctrl+A to select
+2. {"action": "key", "text": "Ctrl+C"} - Copy to clipboard
+3. {"action": "read_clipboard"} - Extract the text
+4. Use extracted text for verification or processing
+
 **RESPONSE FORMAT** (JSON only):
 {
-    "action": "click|type|key|select|wait|download|inspect_screen|ask_user",
+    "action": "click|type|key|select|wait|download|inspect_screen|ask_user|read_clipboard|write_clipboard",
     "element_id": "element_automation_id (OPTIONAL for coordinate clicks)",
     "x": "X coordinate (OPTIONAL for coordinate-based click)",
     "y": "Y coordinate (OPTIONAL for coordinate-based click)",
-    "text": "text to type OR key command OR quality level",
+    "text": "text to type OR key command OR quality level OR clipboard text",
     "url": "download URL (only for 'download' action)",
     "local_file_name": "filename to save (only for 'download' action)",
     "message": "explanation of what you're doing",
