@@ -96,6 +96,10 @@ class Program
         var stepCount = 0;
         int nextScreenshotQuality = 0; // 0 = no screenshot, >0 = capture with this quality
 
+        // STATE TRACKING для self-healing
+        string previousTitle = "";
+        int previousElementCount = 0;
+
         while (stepCount < maxSteps)
         {
             stepCount++;
@@ -107,6 +111,10 @@ class Program
                 Console.WriteLine("  → Scanning UI state...");
                 var uiState = automationService.GetWindowState(window);
                 Console.WriteLine($"  → Found {uiState.Elements.Count} UI elements");
+
+                // Сохраняем состояние ДО выполнения команды для сравнения
+                previousTitle = uiState.WindowTitle;
+                previousElementCount = uiState.Elements.Count;
 
                 // ECONOMY MODE: Add screenshot only if requested
                 if (nextScreenshotQuality > 0)
@@ -169,15 +177,32 @@ class Program
                     }
 
                     var success = await automationService.ExecuteCommand(window, cmd);
+
+                    // Проверяем состояние ПОСЛЕ выполнения для self-healing
+                    await Task.Delay(300); // Даем время UI обновиться
+                    var newState = automationService.GetWindowState(window);
+
+                    string stateChange = "";
+                    if (newState.WindowTitle != previousTitle || newState.Elements.Count != previousElementCount)
+                    {
+                        stateChange = $" [State: {previousTitle}({previousElementCount}) -> {newState.WindowTitle}({newState.Elements.Count})]";
+                        Console.WriteLine($"  📊 UI State changed:{stateChange}");
+                    }
+                    else
+                    {
+                        stateChange = $" [State: NO CHANGE - {previousTitle}({previousElementCount})]";
+                        Console.WriteLine($"  ⚠️  UI State unchanged - action may have failed!");
+                    }
+
                     if (success)
                     {
-                        _actionHistory.Add($"{cmd.Action} {cmd.ElementId} {cmd.Text}");
+                        _actionHistory.Add($"{cmd.Action} {cmd.ElementId} {cmd.Text}{stateChange}");
                         Console.WriteLine("  ✅ Command executed");
                     }
                     else
                     {
                         Console.WriteLine("  ⚠️  Command failed");
-                        _actionHistory.Add($"FAILED: {cmd.Action} {cmd.ElementId}");
+                        _actionHistory.Add($"FAILED: {cmd.Action} {cmd.ElementId}{stateChange}");
                     }
                 }
 

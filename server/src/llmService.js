@@ -84,6 +84,19 @@ ${hasScreenshot ? '**SCREENSHOT**: Provided - analyze the image for visual conte
 **YOUR JOB**:
 Analyze the current UI state and determine the NEXT SINGLE ACTION to complete the task.
 
+**SELF-HEALING LOGIC** (CRITICAL):
+Look at the LAST action in the history above. Check if the UI state changed:
+- Compare the state markers: [State: Title(N) -> NewTitle(M)]
+- If state shows "NO CHANGE" - the action FAILED! DO NOT REPEAT IT!
+
+When an action fails (NO CHANGE or FAILED marker):
+1. **ANALYZE WHY**: The element might not exist, be disabled, or coordinates wrong
+2. **TRY ALTERNATIVE METHOD**:
+   - If element ID click failed -> try coordinate-based click using element's Bounds (X, Y)
+   - If typing failed -> try selecting text first (Ctrl+A) or focusing element
+   - If element not found -> request screenshot via inspect_screen for visual guidance
+3. **DO NOT REPEAT** the exact same failed action - you will waste all 50 steps!
+
 **CRITICAL WORKFLOW FOR TEXT WRITING TASKS**:
 When your task involves writing text to a document/text field:
 1. **FIRST**: Check current content by looking at the 'Value' field of text elements in UI tree
@@ -105,7 +118,9 @@ When your task involves writing text to a document/text field:
 **RESPONSE FORMAT** (JSON only):
 {
     "action": "click|type|key|select|wait|download|inspect_screen",
-    "element_id": "element_automation_id (or blank for key/inspect_screen)",
+    "element_id": "element_automation_id (OPTIONAL for coordinate clicks)",
+    "x": "X coordinate (OPTIONAL for coordinate-based click)",
+    "y": "Y coordinate (OPTIONAL for coordinate-based click)",
     "text": "text to type OR key command OR quality level",
     "url": "download URL (only for 'download' action)",
     "local_file_name": "filename to save (only for 'download' action)",
@@ -113,6 +128,13 @@ When your task involves writing text to a document/text field:
     "task_completed": true|false,
     "reasoning": "why you chose this action. If requesting screen, explain why text tree failed."
 }
+
+**COORDINATE-BASED CLICKS** (Fallback method):
+If you cannot find element by ID or element click keeps failing:
+- Look at element's Bounds in the UI tree: "Bounds: {X: 100, Y: 200, Width: 50, Height: 30}"
+- Calculate center point: center_x = X + Width/2, center_y = Y + Height/2
+- Use: {"action": "click", "x": center_x, "y": center_y, "element_id": ""}
+- Example: {"action": "click", "x": 125, "y": 215, "message": "Clicking button by coordinates"}
 
 **KEY COMMANDS** (for action: "key"):
 - "Ctrl+A" - Select all text
@@ -148,8 +170,14 @@ Respond with JSON only, no additional text.`;
             const status = elem.IsEnabled ? '✓' : '✗';
             const valueText = elem.Value ? ` = '${elem.Value}'` : '';
 
+            // Добавляем координаты для coordinate-based clicks
+            const bounds = elem.Bounds || {};
+            const centerX = bounds.X && bounds.Width ? Math.round(bounds.X + bounds.Width / 2) : 0;
+            const centerY = bounds.Y && bounds.Height ? Math.round(bounds.Y + bounds.Height / 2) : 0;
+            const coordsText = centerX > 0 && centerY > 0 ? ` @(${centerX},${centerY})` : '';
+
             summaryLines.push(
-                `  [${status}] ${elem.Type}: '${elem.Name}' (id: ${elem.Id})${valueText}`
+                `  [${status}] ${elem.Type}: '${elem.Name}' (id: ${elem.Id})${valueText}${coordsText}`
             );
         }
 

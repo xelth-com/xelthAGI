@@ -308,7 +308,7 @@ public class UIAutomationService : IDisposable
             switch (command.Action.ToLower())
             {
                 case "click":
-                    return ClickElement(window, command.ElementId);
+                    return ClickElement(window, command.ElementId, command.X, command.Y);
 
                 case "type":
                     return TypeText(window, command.ElementId, command.Text);
@@ -347,16 +347,52 @@ public class UIAutomationService : IDisposable
         }
     }
 
-    private bool ClickElement(Window window, string elementId)
+    private bool ClickElement(Window window, string elementId, int x = 0, int y = 0)
     {
+        // COORDINATE-BASED CLICK (резервный метод)
+        if (string.IsNullOrEmpty(elementId) && x > 0 && y > 0)
+        {
+            Console.WriteLine($"  → Clicking by coordinates: ({x}, {y})");
+            try
+            {
+                FlaUI.Core.Input.Mouse.Click(new System.Drawing.Point(x, y));
+                Console.WriteLine($"  ✅ Coordinate click successful");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"  ❌ Coordinate click failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        // ELEMENT-BASED CLICK (основной метод)
         var element = FindElementById(window, elementId);
         if (element == null)
         {
-            Console.WriteLine($"Element not found: {elementId}");
+            Console.WriteLine($"  ❌ Element not found: {elementId}");
+
+            // Если есть координаты в Bounds, пробуем кликнуть по ним как fallback
+            if (x > 0 && y > 0)
+            {
+                Console.WriteLine($"  → Trying fallback: Coordinate click ({x}, {y})");
+                try
+                {
+                    FlaUI.Core.Input.Mouse.Click(new System.Drawing.Point(x, y));
+                    Console.WriteLine($"  ✅ Fallback coordinate click successful");
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"  ❌ Fallback click failed: {ex.Message}");
+                }
+            }
+
             return false;
         }
 
         element.Click();
+        Console.WriteLine($"  ✅ Element click successful");
         return true;
     }
 
