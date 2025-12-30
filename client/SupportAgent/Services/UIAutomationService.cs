@@ -690,7 +690,7 @@ public class UIAutomationService : IDisposable
         if (element == null) return false;
 
         const int MaxRetries = 2;
-        const int CharDelayMs = 35; // Increased from 20ms to 35ms for reliability
+        const int CharDelayMs = 75; // Increased to 75ms - Notepad sometimes needs extra time to process chars
 
         for (int attempt = 1; attempt <= MaxRetries; attempt++)
         {
@@ -709,26 +709,27 @@ public class UIAutomationService : IDisposable
             // Verify that text was typed correctly
             string currentValue = GetElementValue(element);
 
-            // Check if our typed text appears at the end of the current value
+            // ALWAYS show what was actually typed for debugging
+            Console.WriteLine($"  ✍️  Typed {text.Length} characters: \"{text}\"");
+            Console.WriteLine($"     Verification: Current value = \"{currentValue}\" (total {currentValue.Length} chars)");
+
+            // Strict verification: text must be exactly at the end (exact match)
+            // We allow the currentValue to be longer (prefix content), but the typed text must be complete
             if (currentValue.EndsWith(text, StringComparison.Ordinal))
             {
-                Console.WriteLine($"  ✍️  Typed {text.Length} characters: \"{text}\"");
-                return true;
-            }
-            else if (currentValue.Contains(text, StringComparison.Ordinal))
-            {
-                // Text is there but not at the end - still success
-                Console.WriteLine($"  ✍️  Typed {text.Length} characters: \"{text}\"");
+                Console.WriteLine($"     ✅ Text verified successfully");
                 return true;
             }
             else
             {
                 // Text verification failed
+                Console.WriteLine($"     ❌ VERIFICATION FAILED!");
+                Console.WriteLine($"     Expected: \"{text}\"");
+                Console.WriteLine($"     Got:      \"{currentValue}\"");
+
                 if (attempt < MaxRetries)
                 {
-                    Console.WriteLine($"  ⚠️  Text verification failed (attempt {attempt}/{MaxRetries}), retrying...");
-                    Console.WriteLine($"     Expected to find: \"{text}\"");
-                    Console.WriteLine($"     Current value: \"{currentValue.Substring(Math.Max(0, currentValue.Length - 50))}\"");
+                    Console.WriteLine($"  ⚠️  Retrying (attempt {attempt}/{MaxRetries})...");
 
                     // Clear and try again
                     element.Focus();
@@ -740,9 +741,7 @@ public class UIAutomationService : IDisposable
                 }
                 else
                 {
-                    Console.WriteLine($"  ❌ Text verification failed after {MaxRetries} attempts");
-                    Console.WriteLine($"     Expected: \"{text}\"");
-                    Console.WriteLine($"     Got: \"{currentValue}\"");
+                    Console.WriteLine($"  ❌ Final attempt failed - giving up after {MaxRetries} attempts");
                     // Still return true to not break the flow - partial success is better than failure
                     return true;
                 }
