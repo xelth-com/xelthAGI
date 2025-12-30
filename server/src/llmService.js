@@ -2,6 +2,7 @@ const { claudeClient, geminiClient } = require('./llm.provider');
 const config = require('./config');
 const fs = require('fs').promises;
 const path = require('path');
+const { search } = require('duck-duck-scrape');
 
 class LLMService {
     constructor() {
@@ -32,6 +33,39 @@ class LLMService {
         }
     }
 
+    async _performWebSearch(query) {
+        try {
+            console.log(`🔍 Performing web search: "${query}"`);
+            const searchResults = await search(query, {
+                safeSearch: 0, // Off
+                locale: 'en-us'
+            });
+
+            if (!searchResults || !searchResults.results || searchResults.results.length === 0) {
+                return 'WEB_SEARCH_RESULT: No results found for query.';
+            }
+
+            // Format top 5 results
+            const topResults = searchResults.results.slice(0, 5);
+            let formattedResults = `WEB_SEARCH_RESULT for "${query}":\n\n`;
+
+            topResults.forEach((result, index) => {
+                formattedResults += `${index + 1}. ${result.title}\n`;
+                formattedResults += `   URL: ${result.url}\n`;
+                if (result.description) {
+                    formattedResults += `   ${result.description}\n`;
+                }
+                formattedResults += '\n';
+            });
+
+            console.log(`✅ Found ${topResults.length} search results`);
+            return formattedResults.trim();
+        } catch (error) {
+            console.error(`❌ Web search failed: ${error.message}`);
+            return `WEB_SEARCH_RESULT: ERROR - ${error.message}`;
+        }
+    }
+
     async decideNextAction(uiState, task, history) {
         // Check if task is a playbook reference
         let effectiveTask = task;
@@ -49,11 +83,33 @@ class LLMService {
         const screenshotBase64 = uiState.Screenshot || null;
         const prompt = this._buildPrompt(uiState, effectiveTask, history, screenshotBase64);
 
+        let response;
         if (this.provider === 'claude') {
-            return await this._askClaude(prompt, screenshotBase64);
+            response = await this._askClaude(prompt, screenshotBase64);
         } else if (this.provider === 'gemini') {
-            return await this._askGemini(prompt, screenshotBase64);
+            response = await this._askGemini(prompt, screenshotBase64);
         }
+
+        // SERVER-SIDE ACTION INTERCEPTION: Check if LLM wants to perform web search
+        if (response && response.action === 'net_search') {
+            const query = response.text || '';
+            console.log(`🌐 LLM requested web search - intercepting on server side`);
+
+            // Perform the search
+            const searchResults = await this._performWebSearch(query);
+
+            // Add search request and results to history
+            const updatedHistory = [...history];
+            updatedHistory.push(`net_search: "${query}" - Requested web search`);
+            updatedHistory.push(searchResults);
+
+            // Recursively call LLM with updated history (search results fed back)
+            console.log(`🔄 Feeding search results back to LLM for next decision`);
+            return await this.decideNextAction(uiState, effectiveTask, updatedHistory);
+        }
+
+        // Normal flow - return physical action for client to execute
+        return response;
     }
 
     _buildPrompt(uiState, task, history, screenshotBase64 = null) {
@@ -205,6 +261,52 @@ Use {"action": "ask_user", "message": "your question or request"} when:
 
 The user's response will appear in the next action history as "USER_SAID: [their response]".
 Then you can continue with the task using the information they provided.
+
+**WEB SEARCH** (Server-Side Knowledge Retrieval):
+You can search the web for documentation, solutions to errors, or any information you need!
+
+**How it works:**
+- This is a SERVER-SIDE action - it executes immediately without waking up the C# client
+- The search runs on the Node.js server using DuckDuckGo
+- Results are fed back into your context automatically
+- You then receive the search results and can decide the next physical action
+
+**When to use net_search:**
+1. **Unknown Errors**: You encounter an error message you don't recognize
+   - Example: "Error 0x80070005" - search for solutions
+2. **API Documentation**: You need to know the correct syntax or parameters
+   - Example: "Windows Registry HKLM permissions" - get best practices
+3. **Software Versions**: You need to check compatibility or features
+   - Example: ".NET 8 features" - understand what's available
+4. **Troubleshooting**: You're stuck and need diagnostic steps
+   - Example: "Windows service won't start troubleshooting" - get checklist
+
+**Command format:**
+{
+    "action": "net_search",
+    "text": "your search query here",
+    "message": "Searching for: [what you're looking for]"
+}
+
+**Example workflow:**
+1. You encounter error: "The application failed to initialize properly (0xc0000142)"
+2. You don't know this error code
+3. You request: {"action": "net_search", "text": "Windows error 0xc0000142 solution", "message": "Looking up error code solution"}
+4. Server performs search, returns top 5 results with URLs and descriptions
+5. Results appear in your next context as: WEB_SEARCH_RESULT for "Windows error 0xc0000142 solution": [results]
+6. You read the results and decide the next action based on the solutions found
+
+**What you get back:**
+- Top 5 search results from DuckDuckGo
+- Each result includes: Title, URL, and Description
+- Results are formatted as: WEB_SEARCH_RESULT for "[query]": [numbered list]
+
+**Important notes:**
+- Use net_search proactively when you lack information - don't guess!
+- The search is FAST - it's a server-side operation with no UI overhead
+- You can search multiple times if needed - refine your query based on results
+- Search results are added to action history automatically
+- This does NOT count as a UI action step - it's transparent to the client
 
 **INSTRUCTIONS**:
 1. **PREFER TEXT TREE**: Try to solve the task using ONLY the Text Tree above. It is faster and cheaper.
@@ -377,7 +479,7 @@ You can switch between different application windows during task execution!
 
 **RESPONSE FORMAT** (JSON only):
 {
-    "action": "click|type|key|select|wait|download|inspect_screen|ask_user|read_clipboard|write_clipboard|os_list|os_read|os_delete|os_run|os_kill|os_mkdir|os_write|os_exists|os_getenv|reg_read|reg_write|net_ping|net_port|switch_window",
+    "action": "click|type|key|select|wait|download|inspect_screen|ask_user|read_clipboard|write_clipboard|os_list|os_read|os_delete|os_run|os_kill|os_mkdir|os_write|os_exists|os_getenv|reg_read|reg_write|net_ping|net_port|net_search|switch_window",
     "element_id": "element_automation_id (OPTIONAL for coordinate clicks)",
     "x": "X coordinate (OPTIONAL for coordinate-based click)",
     "y": "Y coordinate (OPTIONAL for coordinate-based click)",

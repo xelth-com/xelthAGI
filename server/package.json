@@ -12,6 +12,7 @@
     "@google/genai": "^1.34.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
+    "duck-duck-scrape": "^2.2.7",
     "express": "^4.18.2",
     "zod": "^3.22.4"
   }
