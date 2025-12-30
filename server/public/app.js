@@ -18,7 +18,7 @@ const historyList = document.getElementById('historyList');
 // Fetch and update dashboard state
 async function updateDashboard() {
     try {
-        const response = await fetch('/api/state');
+        const response = await fetch('api/state');
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
         }
