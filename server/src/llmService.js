@@ -84,6 +84,16 @@ ${hasScreenshot ? '**SCREENSHOT**: Provided - analyze the image for visual conte
 **YOUR JOB**:
 Analyze the current UI state and determine the NEXT SINGLE ACTION to complete the task.
 
+**CRITICAL WORKFLOW FOR TEXT WRITING TASKS**:
+When your task involves writing text to a document/text field:
+1. **FIRST**: Check current content by looking at the 'Value' field of text elements in UI tree
+2. **IF CONTENT EXISTS**: Clear it COMPLETELY before writing (use Ctrl+A then Delete, or click and select all)
+3. **WRITE**: Type your text
+4. **VERIFY**: After writing, check the 'Value' field again to confirm EXACT match with target text
+5. **FIX IF NEEDED**: If content doesn't match exactly, clear and rewrite
+
+**GOAL**: The document should contain ONLY the text you wrote, nothing else. No old text, no duplicates.
+
 **INSTRUCTIONS**:
 1. **PREFER TEXT TREE**: Try to solve the task using ONLY the Text Tree above. It is faster and cheaper.
 2. **REQUEST VISION ONLY IF NEEDED**: If you strictly cannot find the element (e.g., custom UI, icons without text, complex visual state), you may request a screenshot.
@@ -94,15 +104,28 @@ Analyze the current UI state and determine the NEXT SINGLE ACTION to complete th
 
 **RESPONSE FORMAT** (JSON only):
 {
-    "action": "click|type|select|wait|download|inspect_screen",
-    "element_id": "element_automation_id (or blank if inspect_screen)",
-    "text": "text to type OR quality level (20/50/70) for inspect_screen",
+    "action": "click|type|key|select|wait|download|inspect_screen",
+    "element_id": "element_automation_id (or blank for key/inspect_screen)",
+    "text": "text to type OR key command OR quality level",
     "url": "download URL (only for 'download' action)",
     "local_file_name": "filename to save (only for 'download' action)",
     "message": "explanation of what you're doing",
     "task_completed": true|false,
     "reasoning": "why you chose this action. If requesting screen, explain why text tree failed."
 }
+
+**KEY COMMANDS** (for action: "key"):
+- "Ctrl+A" - Select all text
+- "Delete" - Delete selected/next character
+- "Backspace" - Delete previous character
+- "Enter" - Press Enter
+- "Ctrl+C" / "Ctrl+V" / "Ctrl+X" - Copy/Paste/Cut
+
+**EXAMPLE WORKFLOW** to clear and write text:
+Step 1: {"action": "key", "text": "Ctrl+A", "message": "Selecting all existing text"}
+Step 2: {"action": "key", "text": "Delete", "message": "Clearing document"}
+Step 3: {"action": "type", "element_id": "doc_id", "text": "Your text here", "message": "Writing new text"}
+Step 4: Check Value field to verify exact match
 
 **RULES**:
 1. Return ONLY ONE action at a time

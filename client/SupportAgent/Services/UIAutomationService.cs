@@ -2,6 +2,7 @@ using FlaUI.Core;
 using FlaUI.Core.AutomationElements;
 using FlaUI.Core.Definitions;
 using FlaUI.Core.Input;
+using FlaUI.Core.WindowsAPI;
 using FlaUI.UIA3;
 using SupportAgent.Models;
 using System.Drawing;
@@ -312,6 +313,9 @@ public class UIAutomationService : IDisposable
                 case "type":
                     return TypeText(window, command.ElementId, command.Text);
 
+                case "key":
+                    return PressKey(command.Text);
+
                 case "select":
                     return SelectItem(window, command.ElementId, command.Text);
 
@@ -364,6 +368,69 @@ public class UIAutomationService : IDisposable
         element.Focus();
         Keyboard.Type(text);
         return true;
+    }
+
+    private bool PressKey(string keyCommand)
+    {
+        try
+        {
+            // Поддержка комбинаций клавиш и специальных клавиш
+            switch (keyCommand.ToLower())
+            {
+                case "ctrl+a":
+                    Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_A);
+                    Console.WriteLine("  → Pressed Ctrl+A (Select All)");
+                    break;
+
+                case "delete":
+                    Keyboard.Type(VirtualKeyShort.DELETE);
+                    Console.WriteLine("  → Pressed Delete");
+                    break;
+
+                case "backspace":
+                    Keyboard.Type(VirtualKeyShort.BACK);
+                    Console.WriteLine("  → Pressed Backspace");
+                    break;
+
+                case "enter":
+                    Keyboard.Type(VirtualKeyShort.RETURN);
+                    Console.WriteLine("  → Pressed Enter");
+                    break;
+
+                case "ctrl+c":
+                    Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_C);
+                    Console.WriteLine("  → Pressed Ctrl+C (Copy)");
+                    break;
+
+                case "ctrl+v":
+                    Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_V);
+                    Console.WriteLine("  → Pressed Ctrl+V (Paste)");
+                    break;
+
+                case "ctrl+x":
+                    Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_X);
+                    Console.WriteLine("  → Pressed Ctrl+X (Cut)");
+                    break;
+
+                case "escape":
+                case "esc":
+                    Keyboard.Type(VirtualKeyShort.ESCAPE);
+                    Console.WriteLine("  → Pressed Escape");
+                    break;
+
+                default:
+                    Console.WriteLine($"  ⚠️  Unknown key command: {keyCommand}");
+                    return false;
+            }
+
+            Thread.Sleep(100); // Небольшая пауза после нажатия
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  ❌ Error pressing key '{keyCommand}': {ex.Message}");
+            return false;
+        }
     }
 
     private bool SelectItem(Window window, string elementId, string itemText)
