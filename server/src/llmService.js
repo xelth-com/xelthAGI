@@ -235,6 +235,13 @@ SYSTEM ANALYSIS:
 
 **TASK**: ${task}
 
+**CRITICAL RULE: HANDLING OS RESULTS**
+When you run system commands (os_*, reg_*, net_*), the output appears in the history as "OS_RESULT: ...".
+1. **LOOK AT HISTORY FIRST**: Before running a command, check if you just ran it.
+2. **FOUND RESULT?**: If you see "OS_RESULT" for your command -> **DO NOT RUN IT AGAIN!**
+3. **USE THE RESULT**: Extract the information from the "OS_RESULT" line and proceed (e.g., type it into Notepad).
+4. **LOOP WARNING**: If you run the same os/net/reg command twice, you are failing. STOP and read the history.
+
 **CURRENT WINDOW**: ${uiState.WindowTitle || 'Unknown'}
 
 **MODE**: ${visionMode}
@@ -455,6 +462,7 @@ Your playbook should be clean, concise Markdown that includes:
    - "70" for reading small text/captchas (High quality, expensive)
 
 **OS / SYSTEM COMMANDS** (Fast file operations & process control):
+*REMEMBER: Results appear in history as "OS_RESULT". Read them there!*
 For file management, log reading, and system tasks, use OS commands instead of UI automation - MUCH faster!
 
 **Available Commands:**
