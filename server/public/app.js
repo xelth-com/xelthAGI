@@ -202,11 +202,40 @@ function timeAgo(dateString) {
     return `${Math.floor(seconds / 86400)}d ago`;
 }
 
+// Fetch logs list
+async function updateLogs() {
+    try {
+        const response = await fetch('api/logs');
+        if (!response.ok) return;
+        const logs = await response.json();
+
+        const logsList = document.getElementById('logsList');
+        if (logs.length === 0) {
+            logsList.innerHTML = '<div class="empty-state">No logs found</div>';
+            return;
+        }
+
+        logsList.innerHTML = logs.map(log => `
+            <div class="history-item info" style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <div class="timestamp">${new Date(log.time).toLocaleTimeString()}</div>
+                    <div class="action">${log.name}</div>
+                </div>
+                <a href="${log.url}" target="_blank" style="color: var(--accent-primary); text-decoration: none; border: 1px solid var(--accent-primary); padding: 2px 8px; border-radius: 4px; font-size: 0.8rem;">JSON ⬇️</a>
+            </div>
+        `).join('');
+    } catch (e) {
+        console.error('Failed to fetch logs', e);
+    }
+}
+
 // Initial update
 updateDashboard();
+updateLogs();
 
 // Poll for updates
 setInterval(updateDashboard, POLL_INTERVAL);
+setInterval(updateLogs, 5000); // Poll logs every 5s
 
 // Log to console
 console.log('🚀 Mission Control dashboard initialized');

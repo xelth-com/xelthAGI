@@ -10,6 +10,13 @@ const app = express();
 app.use(express.json({ limit: '50mb' }));
 app.use(cors());
 
+// Ensure logs directory exists
+const fs = require('fs');
+const logsDir = path.join(__dirname, '..', 'public', 'logs');
+if (!fs.existsSync(logsDir)) {
+    fs.mkdirSync(logsDir, { recursive: true });
+}
+
 // Global state storage for Mission Control dashboard
 let globalState = {
     lastSeen: null,
@@ -160,6 +167,45 @@ app.post('/DECIDE', async (req, res) => {
         console.log(`🤖 Decision: ${decision.reasoning || 'No reasoning provided'}`);
         console.log(`📤 Command: ${command.Action} on ${command.ElementId}`);
 
+        // --- SESSION LOGGING (FLIGHT RECORDER) ---
+        try {
+            const shortId = request.ClientId.substring(0, 6);
+            // Create a session ID based on date/hour to group interactions
+            const dateStr = new Date().toISOString().slice(0, 13).replace(/[-T:]/g, ''); // YYYYMMDDHH
+            const logFileName = `session_${shortId}_${dateStr}.json`;
+            const logPath = path.join(logsDir, logFileName);
+            const logUrl = `https://xelth.com/AGI/logs/${logFileName}`;
+
+            const logEntry = {
+                timestamp: new Date().toISOString(),
+                step: (request.History ? request.History.length : 0) + 1,
+                task: request.Task,
+                ui_state: {
+                    window: request.State.WindowTitle,
+                    process: request.State.ProcessName,
+                    elements_count: request.State.Elements ? request.State.Elements.length : 0,
+                    // Store full elements only if needed, can be large
+                    elements_summary: request.State.Elements ? request.State.Elements.map(e => `${e.Type}: ${e.Name} [${e.Value}]`).slice(0, 20) : []
+                },
+                llm_decision: decision
+            };
+
+            // Append to file (read, push, write - simple but effective for low traffic)
+            let sessionData = [];
+            if (fs.existsSync(logPath)) {
+                try {
+                    sessionData = JSON.parse(fs.readFileSync(logPath, 'utf8'));
+                } catch (e) { sessionData = []; }
+            }
+            sessionData.push(logEntry);
+            fs.writeFileSync(logPath, JSON.stringify(sessionData, null, 2));
+
+            console.log(`📝 Log updated: ${logUrl}`);
+        } catch (logErr) {
+            console.error("❌ Logging failed:", logErr.message);
+        }
+        // ------------------------------------------
+
         return res.json({
             Command: command,
             Success: true,
@@ -185,6 +231,23 @@ app.get('/api/state', (req, res) => {
     }
 
     res.json(globalState);
+});
+
+// API to list available logs
+app.get('/api/logs', (req, res) => {
+    try {
+        const files = fs.readdirSync(logsDir)
+            .filter(f => f.endsWith('.json'))
+            .map(f => ({
+                name: f,
+                url: `/logs/${f}`,
+                time: fs.statSync(path.join(logsDir, f)).mtime
+            }))
+            .sort((a, b) => b.time - a.time); // Newest first
+        res.json(files);
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
 // Serve static files from public directory (Mission Control dashboard)
