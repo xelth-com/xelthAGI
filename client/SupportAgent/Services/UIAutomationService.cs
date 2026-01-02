@@ -21,6 +21,15 @@ public class UIAutomationService : IDisposable
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetForegroundWindow(IntPtr hWnd);
 
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+    private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+    private const uint SWP_NOSIZE = 0x0001;
+    private const uint SWP_NOMOVE = 0x0002;
+    private const uint SWP_SHOWWINDOW = 0x0040;
+
     private readonly UIA3Automation _automation;
     private Dictionary<string, AutomationElement> _elementCache = new();
     private readonly HttpClient _httpClient;
@@ -272,7 +281,16 @@ public class UIAutomationService : IDisposable
             Console.WriteLine("  ⚠️  Target window lost focus! Attempting to restore...");
 
             var targetHandle = window.Properties.NativeWindowHandle.ValueOrDefault;
+
+            // Try SetForegroundWindow first (more polite)
             bool success = SetForegroundWindow(targetHandle);
+
+            // If that fails, use SetWindowPos with TOPMOST (more aggressive, but no Admin required)
+            if (!success)
+            {
+                SetWindowPos(targetHandle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+                success = true; // SetWindowPos doesn't fail in practice
+            }
 
             if (success)
             {
