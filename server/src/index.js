@@ -240,7 +240,8 @@ app.get('/api/logs', (req, res) => {
             .filter(f => f.endsWith('.json'))
             .map(f => ({
                 name: f,
-                url: `/logs/${f}`,
+                // Fix: Add /AGI/ prefix for Nginx routing
+                url: `/AGI/logs/${f}`,
                 time: fs.statSync(path.join(logsDir, f)).mtime
             }))
             .sort((a, b) => b.time - a.time); // Newest first
