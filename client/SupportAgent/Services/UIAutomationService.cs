@@ -195,6 +195,10 @@ public class UIAutomationService : IDisposable
     /// </summary>
     public UIState GetWindowState(Window window)
     {
+        // Path 1: Client-Side Reflex (Auto-Restore)
+        // If window is minimized, restore it immediately so we can see elements/screenshot
+        EnsureWindowRestored(window);
+
         // Очищаем кеш перед новым сканированием
         _elementCache.Clear();
 
@@ -209,6 +213,31 @@ public class UIAutomationService : IDisposable
         ScanElements(window, state.Elements, maxDepth: 10);
 
         return state;
+    }
+
+    /// <summary>
+    /// Checks if window is minimized and restores it
+    /// </summary>
+    private void EnsureWindowRestored(Window window)
+    {
+        try
+        {
+            if (window.Patterns.Window.IsSupported)
+            {
+                var windowPattern = window.Patterns.Window.Pattern;
+                if (windowPattern.WindowVisualState.Value == WindowVisualState.Minimized)
+                {
+                    Console.WriteLine("  ⚠️  Window is MINIMIZED! Auto-restoring...");
+                    windowPattern.SetWindowVisualState(WindowVisualState.Normal);
+                    Thread.Sleep(300); // Wait for animation
+                    Console.WriteLine("  ✅ Window restored to Normal state");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  ❌ Failed to auto-restore window: {ex.Message}");
+        }
     }
 
     /// <summary>

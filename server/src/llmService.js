@@ -166,6 +166,22 @@ class LLMService {
         const hasScreenshot = !!screenshotBase64;
         const visionMode = hasScreenshot ? 'VISUAL MODE (Image provided)' : 'TEXT-ONLY MODE (Economy)';
 
+        // PATH 2: MINIMIZED WINDOW DETECTION (Cognitive Awareness)
+        // Windows often sets coordinates to -32000 for minimized windows
+        let windowStatusWarning = '';
+        if (uiState.Elements && uiState.Elements.length > 0) {
+            const mainElement = uiState.Elements[0]; // Usually the main document or window container
+            if (mainElement.Bounds && mainElement.Bounds.X < -1000) {
+                windowStatusWarning = `
+**⚠️ CRITICAL VISION WARNING: TARGET WINDOW IS MINIMIZED OR OFF-SCREEN!**
+Coordinates are negative (${mainElement.Bounds.X}). You cannot see the UI contents.
+**IMMEDIATE ACTION REQUIRED:**
+1. Do NOT try to click coordinates.
+2. Execute command: {"action": "switch_window", "text": "${uiState.WindowTitle || 'target app'}"} to force-restore it.
+`;
+            }
+        }
+
         // LOOP DETECTION: Analyze last actions for repeated patterns
         let loopWarning = '';
         if (history && history.length >= 3) {
@@ -222,6 +238,7 @@ SYSTEM ANALYSIS:
 **CURRENT WINDOW**: ${uiState.WindowTitle || 'Unknown'}
 
 **MODE**: ${visionMode}
+${windowStatusWarning}
 ${loopWarning}
 
 **ACTION HISTORY** (last 10 actions):
