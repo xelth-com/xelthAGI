@@ -163,6 +163,19 @@ class LLMService {
             ? history.slice(-10).map((h, i) => `  ${i + 1}. ${h}`).join('\n')
             : '  (none)';
 
+        // CONTEXT INJECTION: Extract last system result to make it visible
+        let lastSystemResult = "None";
+        if (history && history.length > 0) {
+            // Search backwards for the last meaningful result
+            for (let i = history.length - 1; i >= 0; i--) {
+                const entry = history[i];
+                if (entry.includes("OS_RESULT:") || entry.includes("CLIPBOARD_CONTENT:") || entry.includes("WEB_SEARCH_RESULT")) {
+                    lastSystemResult = entry;
+                    break;
+                }
+            }
+        }
+
         const hasScreenshot = !!screenshotBase64;
         const visionMode = hasScreenshot ? 'VISUAL MODE (Image provided)' : 'TEXT-ONLY MODE (Economy)';
 
@@ -235,18 +248,21 @@ SYSTEM ANALYSIS:
 
 **TASK**: ${task}
 
-**CRITICAL RULE: HANDLING OS RESULTS**
-When you run system commands (os_*, reg_*, net_*), the output appears in the history as "OS_RESULT: ...".
-1. **LOOK AT HISTORY FIRST**: Before running a command, check if you just ran it.
-2. **FOUND RESULT?**: If you see "OS_RESULT" for your command -> **DO NOT RUN IT AGAIN!**
-3. **USE THE RESULT**: Extract the information from the "OS_RESULT" line and proceed (e.g., type it into Notepad).
-4. **LOOP WARNING**: If you run the same os/net/reg command twice, you are failing. STOP and read the history.
+**🧠 COGNITIVE CHECK (REQUIRED)**
+Look at the **SYSTEM MEMORY** section above.
+1. Does it contain the data you need? (e.g., ping result, file content, registry value)
+2. **YES**: STOP running the command! Use the data immediately.
+   - Example: If Memory shows "Ping successful", DO NOT run net_ping again. Type "Ping successful" into the app.
+3. **NO**: Only then run the command.
 
 **CURRENT WINDOW**: ${uiState.WindowTitle || 'Unknown'}
 
 **MODE**: ${visionMode}
 ${windowStatusWarning}
 ${loopWarning}
+
+**📢 SYSTEM MEMORY (LAST RESULT) 📢**
+${lastSystemResult}
 
 **ACTION HISTORY** (last 10 actions):
 ${historyText}
