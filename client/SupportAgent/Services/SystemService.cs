@@ -127,7 +127,7 @@ public class SystemService
     }
 
     /// <summary>
-    /// Runs a process with arguments
+    /// Runs a process with arguments and optional timeout
     /// </summary>
     public string RunProcess(string executablePath, string arguments = "")
     {
@@ -148,11 +148,25 @@ public class SystemService
                 return $"ERROR: Failed to start process: {executablePath}";
             }
 
+            // Give process 30 seconds to start responding (optional safety check)
+            // This prevents hanging on processes that fail to initialize
+            if (!process.WaitForInputIdle(30000))
+            {
+                // Process didn't become responsive, but that's ok for background processes
+                // Just log it and continue
+            }
+
             return $"✅ Started process: {executablePath} (PID: {process.Id})";
         }
         catch (System.ComponentModel.Win32Exception ex)
         {
             return $"ERROR: Cannot execute - {ex.Message}";
+        }
+        catch (InvalidOperationException)
+        {
+            // WaitForInputIdle failed (expected for console apps)
+            // Return success anyway since process started
+            return $"✅ Started process (console/background): {executablePath}";
         }
         catch (Exception ex)
         {
@@ -392,67 +406,122 @@ public class SystemService
     }
 
     /// <summary>
-    /// Pings a host to check network connectivity
+    /// Pings a host to check network connectivity with retry logic
     /// </summary>
-    public string NetworkPing(string host, int timeout = 2000)
+    public string NetworkPing(string host, int timeout = 2000, int retries = 3)
     {
-        try
-        {
-            using var ping = new Ping();
-            var reply = ping.Send(host, timeout);
+        Exception? lastException = null;
 
-            if (reply.Status == IPStatus.Success)
-            {
-                return $"✅ Ping successful: {host} ({reply.Address}) - {reply.RoundtripTime}ms";
-            }
-            else
-            {
-                return $"❌ Ping failed: {host} - Status: {reply.Status}";
-            }
-        }
-        catch (PingException ex)
+        for (int attempt = 0; attempt < retries; attempt++)
         {
-            return $"ERROR: Ping failed - {ex.Message}";
-        }
-        catch (Exception ex)
-        {
-            return $"ERROR: {ex.Message}";
-        }
-    }
+            try
+            {
+                using var ping = new Ping();
+                var reply = ping.Send(host, timeout);
 
-    /// <summary>
-    /// Checks if a TCP port is open on a host
-    /// </summary>
-    public string NetworkCheckPort(string host, int port, int timeout = 2000)
-    {
-        try
-        {
-            using var client = new TcpClient();
-            var connectTask = client.ConnectAsync(host, port);
-
-            if (connectTask.Wait(timeout))
-            {
-                if (client.Connected)
+                if (reply.Status == IPStatus.Success)
                 {
-                    return $"✅ Port {port} is OPEN on {host}";
+                    var retryInfo = attempt > 0 ? $" (succeeded on attempt {attempt + 1}/{retries})" : "";
+                    return $"✅ Ping successful: {host} ({reply.Address}) - {reply.RoundtripTime}ms{retryInfo}";
+                }
+                else if (attempt < retries - 1)
+                {
+                    // Not successful, but not the last attempt - retry
+                    Thread.Sleep(1000);
+                    continue;
                 }
                 else
                 {
-                    return $"❌ Port {port} is CLOSED on {host}";
+                    // Last attempt failed
+                    return $"❌ Ping failed after {retries} attempts: {host} - Status: {reply.Status}";
                 }
             }
-            else
+            catch (PingException ex)
             {
-                return $"❌ Port {port} on {host} - Connection timeout ({timeout}ms)";
+                lastException = ex;
+                if (attempt < retries - 1)
+                {
+                    Thread.Sleep(1000);
+                    continue;
+                }
+            }
+            catch (Exception ex)
+            {
+                lastException = ex;
+                if (attempt < retries - 1)
+                {
+                    Thread.Sleep(1000);
+                    continue;
+                }
             }
         }
-        catch (SocketException ex)
+
+        return $"ERROR: Ping failed after {retries} attempts - {lastException?.Message}";
+    }
+
+    /// <summary>
+    /// Checks if a TCP port is open on a host with retry logic
+    /// </summary>
+    public string NetworkCheckPort(string host, int port, int timeout = 2000, int retries = 3)
+    {
+        Exception? lastException = null;
+
+        for (int attempt = 0; attempt < retries; attempt++)
         {
-            return $"❌ Port {port} is CLOSED on {host} - {ex.Message}";
+            try
+            {
+                using var client = new TcpClient();
+                var connectTask = client.ConnectAsync(host, port);
+
+                if (connectTask.Wait(timeout))
+                {
+                    if (client.Connected)
+                    {
+                        var retryInfo = attempt > 0 ? $" (succeeded on attempt {attempt + 1}/{retries})" : "";
+                        return $"✅ Port {port} is OPEN on {host}{retryInfo}";
+                    }
+                    else if (attempt < retries - 1)
+                    {
+                        // Not connected, but not the last attempt - retry
+                        Thread.Sleep(1000);
+                        continue;
+                    }
+                    else
+                    {
+                        return $"❌ Port {port} is CLOSED on {host} (after {retries} attempts)";
+                    }
+                }
+                else if (attempt < retries - 1)
+                {
+                    // Timeout, but not the last attempt - retry
+                    Thread.Sleep(1000);
+                    continue;
+                }
+                else
+                {
+                    return $"❌ Port {port} on {host} - Connection timeout after {retries} attempts ({timeout}ms each)";
+                }
+            }
+            catch (SocketException ex)
+            {
+                lastException = ex;
+                if (attempt < retries - 1)
+                {
+                    Thread.Sleep(1000);
+                    continue;
+                }
+            }
+            catch (Exception ex)
+            {
+                lastException = ex;
+                if (attempt < retries - 1)
+                {
+                    Thread.Sleep(1000);
+                    continue;
+                }
+            }
         }
-        catch (Exception ex)
-        {
-            return $"ERROR: {ex.Message}";
-        }
+
+        return $"ERROR: Port check failed after {retries} attempts - {lastException?.Message}";
     }
 }

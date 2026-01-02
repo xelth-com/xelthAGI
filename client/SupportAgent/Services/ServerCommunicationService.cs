@@ -21,39 +21,71 @@ public class ServerCommunicationService
     }
 
     /// <summary>
-    /// Отправляет состояние UI на сервер и получает команду
+    /// Отправляет состояние UI на сервер и получает команду (с retry logic)
     /// </summary>
-    public async Task<ServerResponse?> GetNextCommand(UIState state, string task, List<string> history)
+    public async Task<ServerResponse?> GetNextCommand(UIState state, string task, List<string> history, int maxRetries = 3)
     {
-        try
+        Exception? lastException = null;
+
+        for (int attempt = 0; attempt < maxRetries; attempt++)
         {
-            var request = new ServerRequest
+            try
             {
-                ClientId = _clientId,
-                State = state,
-                Task = task,
-                History = history
-            };
+                var request = new ServerRequest
+                {
+                    ClientId = _clientId,
+                    State = state,
+                    Task = task,
+                    History = history
+                };
 
-            var json = JsonConvert.SerializeObject(request);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
+                var json = JsonConvert.SerializeObject(request);
+                var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-            var response = await _httpClient.PostAsync($"{_serverUrl}/decide", content);
-            response.EnsureSuccessStatusCode();
+                var response = await _httpClient.PostAsync($"{_serverUrl}/decide", content);
+                response.EnsureSuccessStatusCode();
 
-            var responseJson = await response.Content.ReadAsStringAsync();
-            return JsonConvert.DeserializeObject<ServerResponse>(responseJson);
+                var responseJson = await response.Content.ReadAsStringAsync();
+
+                // Success! Log if this was a retry
+                if (attempt > 0)
+                {
+                    Console.WriteLine($"  ✅ Server request succeeded on attempt {attempt + 1}/{maxRetries}");
+                }
+
+                return JsonConvert.DeserializeObject<ServerResponse>(responseJson);
+            }
+            catch (HttpRequestException ex)
+            {
+                lastException = ex;
+                if (attempt < maxRetries - 1)
+                {
+                    // Exponential backoff: 1s, 2s, 4s
+                    int delayMs = (int)Math.Pow(2, attempt) * 1000;
+                    Console.WriteLine($"  ⚠️  Server request failed (attempt {attempt + 1}/{maxRetries}), retrying in {delayMs/1000}s...");
+                    await Task.Delay(delayMs);
+                    continue;
+                }
+                Console.WriteLine($"Server communication error after {maxRetries} attempts: {ex.Message}");
+                return null;
+            }
+            catch (Exception ex)
+            {
+                lastException = ex;
+                if (attempt < maxRetries - 1)
+                {
+                    // Exponential backoff: 1s, 2s, 4s
+                    int delayMs = (int)Math.Pow(2, attempt) * 1000;
+                    Console.WriteLine($"  ⚠️  Request error (attempt {attempt + 1}/{maxRetries}), retrying in {delayMs/1000}s...");
+                    await Task.Delay(delayMs);
+                    continue;
+                }
+                Console.WriteLine($"Error after {maxRetries} attempts: {ex.Message}");
+                return null;
+            }
         }
-        catch (HttpRequestException ex)
-        {
-            Console.WriteLine($"Server communication error: {ex.Message}");
-            return null;
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Error: {ex.Message}");
-            return null;
-        }
+
+        return null;
     }
 
     /// <summary>

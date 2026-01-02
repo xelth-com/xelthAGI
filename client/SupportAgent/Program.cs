@@ -3,6 +3,7 @@ using SupportAgent.Services;
 using System.Windows.Forms;
 using System.Drawing;
 using System.Runtime.InteropServices;
+using System.Diagnostics;
 
 namespace SupportAgent;
 
@@ -247,7 +248,14 @@ class Program
                         }
                     }
 
+                    // Measure execution time
+                    var sw = Stopwatch.StartNew();
                     var success = await automationService.ExecuteCommand(automationService.CurrentWindow, cmd);
+                    sw.Stop();
+
+                    Console.ForegroundColor = ConsoleColor.DarkGray;
+                    Console.WriteLine($"  ⏱️  Execution time: {sw.ElapsedMilliseconds}ms");
+                    Console.ResetColor();
 
                     await Task.Delay(300);
 
