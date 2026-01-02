@@ -1,10 +1,44 @@
 using SupportAgent.Models;
 using SupportAgent.Services;
+using System.Windows.Forms;
+using System.Drawing;
+using System.Runtime.InteropServices;
 
 namespace SupportAgent;
 
 class Program
 {
+    // Force window to foreground (Windows API)
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, IntPtr processId);
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool AttachThreadInput(uint idAttach, uint idAttachTo, bool fAttach);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool FlashWindow(IntPtr hWnd, bool bInvert);
+
+    private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+    private const uint SWP_NOSIZE = 0x0001;
+    private const uint SWP_NOMOVE = 0x0002;
+    private const uint SWP_SHOWWINDOW = 0x0040;
+
     private const string DEFAULT_SERVER_URL = "https://xelth.com/agi";
     private static readonly List<string> _actionHistory = new();
     private static string _clientId = "";
@@ -19,18 +53,17 @@ class Program
         "write_clipboard"
     };
 
+    [STAThread] // Required for Windows Forms
     static async Task<int> Main(string[] args)
     {
         Console.WriteLine("╔════════════════════════════════════════════╗");
         Console.WriteLine("║   Support Agent - C# + FlaUI Client       ║");
         Console.WriteLine("╚════════════════════════════════════════════╝\n");
 
-        // Получаем или генерируем уникальный Client ID
         _clientId = GetOrCreateClientId();
         Console.WriteLine($"Client ID: {_clientId}");
         Console.WriteLine();
 
-        // Параметры
         var defaultServerUrl = LoadServerConfigFromFile() ?? DEFAULT_SERVER_URL;
         var serverUrl = GetArgument(args, "--server", defaultServerUrl);
         var targetApp = GetArgument(args, "--app", "");
@@ -40,10 +73,6 @@ class Program
         if (string.IsNullOrEmpty(targetApp))
         {
             Console.WriteLine("Usage: SupportAgent --app <AppName> --task <Task> [--server <URL>] [--unsafe]");
-            Console.WriteLine("\nExamples:");
-            Console.WriteLine("  SupportAgent --app InBodySuite --task \"Configure printer settings\"");
-            Console.WriteLine("  SupportAgent --app notepad --task \"Type hello world\" --server http://my-server:5000");
-            Console.WriteLine("  SupportAgent --app notepad --task \"Delete temp files\" --unsafe  (bypasses safety confirmations)");
             return 1;
         }
 
@@ -53,74 +82,55 @@ class Program
             return 1;
         }
 
-        // Safety Rails notification
         if (unsafeMode)
         {
             Console.ForegroundColor = ConsoleColor.Yellow;
             Console.WriteLine("⚠️  UNSAFE MODE ENABLED - Destructive actions will NOT require confirmation");
             Console.ResetColor();
-            Console.WriteLine();
         }
 
-        // Инициализация сервисов
         using var automationService = new UIAutomationService();
         var serverService = new ServerCommunicationService(serverUrl, _clientId);
 
-        // Проверка сервера
         Console.WriteLine($"Connecting to server: {serverUrl}");
         if (!await serverService.IsServerAvailable())
         {
             Console.WriteLine("❌ Server is not available!");
-            Console.WriteLine("Please start the server and try again.");
             return 1;
         }
         Console.WriteLine("✅ Server connected\n");
 
-        // Поиск окна приложения
         Console.WriteLine($"Looking for window: {targetApp}");
         automationService.FindWindow(targetApp);
 
-        // Если не нашли, пытаемся запустить Notepad автоматически
         if (automationService.CurrentWindow == null && targetApp.Contains("Notepad", StringComparison.OrdinalIgnoreCase))
         {
             Console.WriteLine($"⚠️  Window not found. Launching Notepad...");
             try
             {
                 System.Diagnostics.Process.Start("notepad.exe");
-                await Task.Delay(2000); // Ждем 2 секунды
-
+                await Task.Delay(2000);
                 automationService.FindWindow(targetApp);
-                if (automationService.CurrentWindow != null)
-                {
-                    Console.WriteLine($"✅ Notepad launched successfully!");
-                }
             }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"⚠️  Failed to launch Notepad: {ex.Message}");
-            }
+            catch { }
         }
 
         if (automationService.CurrentWindow == null)
         {
             Console.WriteLine($"❌ Window '{targetApp}' not found!");
-            Console.WriteLine("Please make sure the application is running.");
             return 1;
         }
         Console.WriteLine($"✅ Found window: {automationService.CurrentWindow.Name}\n");
 
-        // Основной цикл автоматизации
         Console.WriteLine($"Task: {task}");
         Console.WriteLine("Starting automation...\n");
 
-        var maxSteps = 50; // Максимум 50 шагов
+        var maxSteps = 50;
         var stepCount = 0;
-        int nextScreenshotQuality = 0; // 0 = no screenshot, >0 = capture with this quality
-
-        // STATE TRACKING для self-healing
+        int nextScreenshotQuality = 0;
         string previousTitle = "";
         int previousElementCount = 0;
-        string previousContentHash = ""; // Hash of text element Values for deep state detection
+        string previousContentHash = "";
 
         while (stepCount < maxSteps)
         {
@@ -129,8 +139,6 @@ class Program
 
             try
             {
-                // 1. Получить текущее состояние UI
-                // Check if current window is still valid
                 if (automationService.CurrentWindow == null)
                 {
                     Console.WriteLine("  ❌ Current window is no longer available");
@@ -141,113 +149,91 @@ class Program
                 var uiState = automationService.GetWindowState(automationService.CurrentWindow);
                 Console.WriteLine($"  → Found {uiState.Elements.Count} UI elements");
 
-                // Сохраняем состояние ДО выполнения команды для сравнения
                 previousTitle = uiState.WindowTitle;
                 previousElementCount = uiState.Elements.Count;
 
-                // Capture content hash BEFORE action (deep state detection)
                 var textElements = uiState.Elements.Where(e =>
                     e.Type.Contains("Text", StringComparison.OrdinalIgnoreCase) ||
                     e.Type.Contains("Edit", StringComparison.OrdinalIgnoreCase) ||
                     e.Type.Contains("Document", StringComparison.OrdinalIgnoreCase));
                 previousContentHash = string.Join("|", textElements.Select(e => e.Value ?? ""));
 
-                // ECONOMY MODE: Add screenshot only if requested
                 if (nextScreenshotQuality > 0)
                 {
                     Console.WriteLine($"  📷 Capturing screenshot (Quality: {nextScreenshotQuality}%)...");
                     uiState.Screenshot = automationService.CaptureScreen(nextScreenshotQuality);
-                    nextScreenshotQuality = 0; // Reset flag
+                    nextScreenshotQuality = 0;
                 }
 
-                // 2. Отправить на сервер и получить команду
                 Console.WriteLine("  → Asking server for next action...");
                 var response = await serverService.GetNextCommand(uiState, task, _actionHistory);
 
-                if (response == null)
+                if (response == null || !response.Success)
                 {
-                    Console.WriteLine("  ❌ No response from server");
+                    Console.WriteLine("  ❌ Server error or no response");
                     break;
                 }
 
-                if (!response.Success)
-                {
-                    Console.WriteLine($"  ❌ Server error: {response.Error}");
-                    break;
-                }
-
-                // 3. Проверить завершение задачи
                 if (response.TaskCompleted)
                 {
                     Console.WriteLine("\n✅ Task completed successfully!");
-                    if (!string.IsNullOrEmpty(response.Command?.Message))
-                    {
-                        Console.WriteLine($"   {response.Command.Message}");
-                    }
                     return 0;
                 }
 
-                // 4. Handle special commands
                 if (response.Command != null && response.Command.Action.ToLower() == "inspect_screen")
                 {
-                    // Server requested screenshot - parse quality and set flag
                     int.TryParse(response.Command.Text, out int quality);
-                    nextScreenshotQuality = quality > 0 ? quality : 50; // Default to 50% if invalid
-
+                    nextScreenshotQuality = quality > 0 ? quality : 50;
                     Console.WriteLine($"  👀 Server requested visual inspection (Quality: {nextScreenshotQuality}%)");
                     _actionHistory.Add($"SYSTEM: Requested screenshot at {nextScreenshotQuality}% quality");
-
-                    // Continue to next iteration to capture and send screenshot
                     continue;
                 }
 
-                // Handle ask_user - request human assistance
+                // --- GUI INPUT DIALOG FOR HUMAN ASSISTANCE ---
                 if (response.Command != null && response.Command.Action.ToLower() == "ask_user")
                 {
-                    // Alert user with beep
                     Console.Beep();
-
-                    // Display message in yellow
                     Console.ForegroundColor = ConsoleColor.Yellow;
                     Console.WriteLine($"\n  🤝 HUMAN ASSISTANCE REQUESTED:");
                     Console.WriteLine($"  {response.Command.Message}");
                     Console.ResetColor();
 
-                    // Prompt for input
-                    Console.Write("  >> ");
-                    var userInput = Console.ReadLine() ?? "";
+                    // Open GUI Dialog (Blocking)
+                    string userInput = ShowInputDialog(
+                        "AI Agent Needs Help",
+                        response.Command.Message
+                    );
 
-                    // Log to history
+                    // Log response
                     _actionHistory.Add($"USER_SAID: {userInput}");
-                    Console.WriteLine($"  ✅ User response recorded\n");
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.WriteLine($"  >>   ✅ User response recorded");
+                    Console.ResetColor();
 
-                    // Continue to next iteration with user's response in history
                     continue;
                 }
+                // --------------------------------------------------
 
-                // 5. Выполнить обычную команду
                 if (response.Command != null)
                 {
                     var cmd = response.Command;
                     Console.WriteLine($"  → Executing: {cmd.Action} on {cmd.ElementId}");
-
                     if (!string.IsNullOrEmpty(cmd.Message))
                     {
+                        Console.ForegroundColor = ConsoleColor.DarkGray;
                         Console.WriteLine($"     💬 {cmd.Message}");
+                        Console.ResetColor();
                     }
 
-                    // Safety Rails: Confirm high-risk actions
+                    // Safety Rails
                     if (HighRiskActions.Contains(cmd.Action) && !unsafeMode)
                     {
                         Console.ForegroundColor = ConsoleColor.Red;
                         Console.WriteLine($"\n  ⚠️  WARNING: HIGH-RISK ACTION DETECTED!");
                         Console.WriteLine($"  Action: {cmd.Action}");
                         Console.WriteLine($"  Target: {cmd.Text}");
-                        if (!string.IsNullOrEmpty(cmd.ElementId))
-                        {
-                            Console.WriteLine($"  Parameter: {cmd.ElementId}");
-                        }
                         Console.ResetColor();
+
                         Console.Write("\n  Do you want to proceed? [Y/n]: ");
                         var confirmation = Console.ReadLine()?.Trim().ToLower() ?? "n";
 
@@ -257,98 +243,107 @@ class Program
                             Console.WriteLine($"  ❌ Action DENIED by user");
                             Console.ResetColor();
                             _actionHistory.Add($"FAILED: User denied {cmd.Action} {cmd.Text} - Safety check");
-                            Console.WriteLine();
-                            continue; // Skip to next iteration
+                            continue;
                         }
-                        Console.WriteLine($"  ✅ Confirmed by user");
-                        Console.WriteLine();
                     }
 
                     var success = await automationService.ExecuteCommand(automationService.CurrentWindow, cmd);
 
-                    // Проверяем состояние ПОСЛЕ выполнения для self-healing
-                    await Task.Delay(300); // Даем время UI обновиться
+                    await Task.Delay(300);
 
-                    // Check if window is still valid before getting state
                     if (automationService.CurrentWindow == null)
                     {
-                        Console.WriteLine("  ⚠️  Window no longer available after command execution");
-                        _actionHistory.Add($"FAILED: {cmd.Action} - Window closed");
-                        break;
+                        Console.WriteLine("  ⚠️  Target window lost focus! Attempting to restore...");
+                        automationService.FindWindow(targetApp);
+                        if (automationService.CurrentWindow != null)
+                        {
+                            Console.ForegroundColor = ConsoleColor.Green;
+                            Console.WriteLine("  ✅ Focus restored to target window");
+                            Console.ResetColor();
+                        }
+                        else
+                        {
+                            break;
+                        }
                     }
 
                     var newState = automationService.GetWindowState(automationService.CurrentWindow);
 
-                    // Deep state detection: check content changes
+                    bool titleChanged = newState.WindowTitle != previousTitle;
+                    bool elementCountChanged = newState.Elements.Count != previousElementCount;
+
                     var newTextElements = newState.Elements.Where(e =>
                         e.Type.Contains("Text", StringComparison.OrdinalIgnoreCase) ||
                         e.Type.Contains("Edit", StringComparison.OrdinalIgnoreCase) ||
                         e.Type.Contains("Document", StringComparison.OrdinalIgnoreCase));
                     var newContentHash = string.Join("|", newTextElements.Select(e => e.Value ?? ""));
-
-                    bool titleChanged = newState.WindowTitle != previousTitle;
-                    bool countChanged = newState.Elements.Count != previousElementCount;
                     bool contentChanged = newContentHash != previousContentHash;
 
-                    string stateChange = "";
-                    if (titleChanged || countChanged || contentChanged)
-                    {
-                        if (contentChanged)
-                        {
-                            // Content changed - this is a success!
-                            stateChange = $" [Content Modified: {previousContentHash.Length}→{newContentHash.Length} chars]";
-                            Console.WriteLine($"  📝 Content changed:{stateChange}");
-                        }
-                        else
-                        {
-                            stateChange = $" [State: {previousTitle}({previousElementCount}) -> {newState.WindowTitle}({newState.Elements.Count})]";
-                            Console.WriteLine($"  📊 UI State changed:{stateChange}");
-                        }
-                    }
-                    else
-                    {
-                        stateChange = $" [State: NO CHANGE - {previousTitle}({previousElementCount}) - Content: {previousContentHash.Length} chars]";
-                        Console.WriteLine($"  ⚠️  UI State unchanged - action may have failed!");
-                    }
+                    string stateDescription = "";
 
                     if (success)
                     {
-                        // Special handling for read_clipboard - include content in history
-                        if (cmd.Action.ToLower() == "read_clipboard")
-                        {
-                            var clipboardContent = automationService.LastClipboardContent ?? "";
-                            // Truncate if too long to avoid bloating history
-                            var truncatedContent = clipboardContent.Length > 1000
-                                ? clipboardContent.Substring(0, 1000) + "... (truncated)"
-                                : clipboardContent;
-                            _actionHistory.Add($"CLIPBOARD_CONTENT: \"{truncatedContent}\"");
-                            Console.WriteLine($"  ✅ Clipboard content logged to history");
-                        }
-                        // Special handling for OS commands - include result in history
-                        else if (cmd.Action.ToLower().StartsWith("os_"))
+                        if (cmd.Action.ToLower().StartsWith("os_"))
                         {
                             var osResult = automationService.LastOsOperationResult ?? "";
-                            // Truncate if too long to avoid bloating history
-                            var truncatedResult = osResult.Length > 1000
-                                ? osResult.Substring(0, 1000) + "... (truncated)"
-                                : osResult;
-                            _actionHistory.Add($"OS_RESULT: {truncatedResult}");
-                            Console.WriteLine($"  ✅ OS operation result logged to history");
+                            var truncated = osResult.Length > 1000 ? osResult.Substring(0, 1000) + "..." : osResult;
+                            _actionHistory.Add($"OS_RESULT: {truncated}");
+                            Console.ForegroundColor = ConsoleColor.Cyan;
+                            Console.WriteLine("  ✅ OS operation result logged to history");
+                            Console.ResetColor();
+                        }
+                        else if (cmd.Action.ToLower() == "read_clipboard")
+                        {
+                            _actionHistory.Add($"CLIPBOARD_CONTENT: \"{automationService.LastClipboardContent}\"");
+                            Console.ForegroundColor = ConsoleColor.Cyan;
+                            Console.WriteLine("  ✅ Clipboard content logged to history");
+                            Console.ResetColor();
                         }
                         else
                         {
-                            _actionHistory.Add($"{cmd.Action} {cmd.ElementId} {cmd.Text}{stateChange}");
-                            Console.WriteLine("  ✅ Command executed");
+                            if (titleChanged)
+                            {
+                                stateDescription = $"[Title Changed: {previousTitle}→{newState.WindowTitle}]";
+                            }
+                            else if (contentChanged)
+                            {
+                                var oldLen = previousContentHash.Length;
+                                var newLen = newContentHash.Length;
+                                stateDescription = $"[Content Modified: {oldLen}→{newLen} chars]";
+                            }
+                            else if (elementCountChanged)
+                            {
+                                stateDescription = $"[Elements Changed: {previousElementCount}→{newState.Elements.Count}]";
+                            }
+                            else
+                            {
+                                stateDescription = $"[State: NO CHANGE - {newState.WindowTitle}({newState.Elements.Count}) - Content: {newContentHash.Length} chars]";
+                            }
+
+                            _actionHistory.Add($"{cmd.Action} {cmd.ElementId} {cmd.Text} {stateDescription}");
+
+                            if (titleChanged || contentChanged || elementCountChanged)
+                            {
+                                Console.ForegroundColor = ConsoleColor.Green;
+                                Console.WriteLine($"  📝 Content changed: {stateDescription}");
+                                Console.ResetColor();
+                            }
+                            else
+                            {
+                                Console.ForegroundColor = ConsoleColor.DarkYellow;
+                                Console.WriteLine("  ⚠️  UI State unchanged - action may have failed!");
+                                Console.ResetColor();
+                            }
                         }
+                        Console.WriteLine("  ✅ Command executed");
                     }
                     else
                     {
                         Console.WriteLine("  ⚠️  Command failed");
-                        _actionHistory.Add($"FAILED: {cmd.Action} {cmd.ElementId}{stateChange}");
+                        _actionHistory.Add($"FAILED: {cmd.Action} {cmd.ElementId} {stateDescription}");
                     }
                 }
 
-                // Небольшая пауза между шагами
                 await Task.Delay(500);
             }
             catch (Exception ex)
@@ -362,94 +357,144 @@ class Program
 
         if (stepCount >= maxSteps)
         {
+            Console.ForegroundColor = ConsoleColor.Yellow;
             Console.WriteLine("⚠️  Reached maximum steps limit");
+            Console.ResetColor();
         }
 
         return 0;
     }
 
+    // Aggressively force window to foreground (bypasses Windows restrictions)
+    private static void ForceWindowToForeground(IntPtr hWnd)
+    {
+        // Get current foreground window and its thread
+        IntPtr foregroundWindow = GetForegroundWindow();
+        uint foregroundThreadId = GetWindowThreadProcessId(foregroundWindow, IntPtr.Zero);
+        uint currentThreadId = GetCurrentThreadId();
+
+        // Attach our thread to the foreground thread
+        if (foregroundThreadId != currentThreadId)
+        {
+            AttachThreadInput(currentThreadId, foregroundThreadId, true);
+            SetForegroundWindow(hWnd);
+            AttachThreadInput(currentThreadId, foregroundThreadId, false);
+        }
+        else
+        {
+            SetForegroundWindow(hWnd);
+        }
+
+        // Make window topmost
+        SetWindowPos(hWnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+
+        // Flash window to draw attention
+        FlashWindow(hWnd, true);
+        Task.Delay(100).Wait();
+        FlashWindow(hWnd, false);
+    }
+
+    // Helper method to show a GUI Input Dialog with Force Foreground
+    private static string ShowInputDialog(string title, string prompt)
+    {
+        Form promptForm = new Form()
+        {
+            Width = 500,
+            Height = 200,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            Text = title,
+            StartPosition = FormStartPosition.CenterScreen,
+            TopMost = true, // Force on top of other windows
+            WindowState = FormWindowState.Normal, // Ensure not minimized
+            MinimizeBox = false, // Disable minimize button
+            MaximizeBox = false,
+            ShowInTaskbar = true
+        };
+
+        Label textLabel = new Label()
+        {
+            Left = 20,
+            Top = 20,
+            Width = 440,
+            Text = prompt,
+            AutoSize = false,
+            Height = 60
+        };
+
+        TextBox inputBox = new TextBox()
+        {
+            Left = 20,
+            Top = 90,
+            Width = 440
+        };
+
+        Button confirmation = new Button()
+        {
+            Text = "OK",
+            Left = 360,
+            Width = 100,
+            Top = 120,
+            DialogResult = DialogResult.OK
+        };
+
+        confirmation.Click += (sender, e) => { promptForm.Close(); };
+        promptForm.Controls.Add(textLabel);
+        promptForm.Controls.Add(inputBox);
+        promptForm.Controls.Add(confirmation);
+        promptForm.AcceptButton = confirmation;
+
+        // Aggressively force focus when shown
+        promptForm.Shown += (sender, e) =>
+        {
+            ForceWindowToForeground(promptForm.Handle);
+            promptForm.Activate();
+            promptForm.BringToFront();
+            inputBox.Focus();
+        };
+
+        // Ensure focus on input box
+        promptForm.ActiveControl = inputBox;
+
+        // Show as dialog blocks execution until closed
+        return promptForm.ShowDialog() == DialogResult.OK ? inputBox.Text : "";
+    }
+
     private static string GetArgument(string[] args, string name, string defaultValue)
     {
         var index = Array.IndexOf(args, name);
-        if (index >= 0 && index + 1 < args.Length)
-        {
-            return args[index + 1];
-        }
+        if (index >= 0 && index + 1 < args.Length) return args[index + 1];
         return defaultValue;
     }
 
-    private static bool HasFlag(string[] args, string flag)
-    {
-        return Array.IndexOf(args, flag) >= 0;
-    }
+    private static bool HasFlag(string[] args, string flag) => Array.IndexOf(args, flag) >= 0;
 
     private static string? LoadServerConfigFromFile()
     {
-        var configPaths = new[]
+        try
         {
-            "config/server.txt",
-            "../config/server.txt",
-            "server.txt"
-        };
-
-        foreach (var path in configPaths)
-        {
-            try
-            {
-                if (File.Exists(path))
-                {
-                    var lines = File.ReadAllLines(path);
-                    foreach (var line in lines)
-                    {
-                        var trimmed = line.Trim();
-                        // Пропускаем комментарии и пустые строки
-                        if (!string.IsNullOrEmpty(trimmed) && !trimmed.StartsWith("#"))
-                        {
-                            return trimmed;
-                        }
-                    }
-                }
-            }
-            catch
-            {
-                // Игнорируем ошибки чтения файла
-            }
+            if (File.Exists("server.txt"))
+                return File.ReadAllLines("server.txt").FirstOrDefault(l => !l.StartsWith("#"));
         }
-
+        catch { }
         return null;
     }
 
     private static string GetOrCreateClientId()
     {
+        var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "XelthAGI", "client-id.txt");
         try
         {
-            // Путь к файлу с ID в AppData
-            var appDataPath = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            var clientIdDir = Path.Combine(appDataPath, "XelthAGI");
-            var clientIdFile = Path.Combine(clientIdDir, "client-id.txt");
+            if (File.Exists(path))
+                return File.ReadAllText(path).Trim();
 
-            // Создаем директорию если не существует
-            Directory.CreateDirectory(clientIdDir);
-
-            // Читаем существующий ID или создаем новый
-            if (File.Exists(clientIdFile))
-            {
-                var existingId = File.ReadAllText(clientIdFile).Trim();
-                if (!string.IsNullOrEmpty(existingId))
-                {
-                    return existingId;
-                }
-            }
-
-            // Генерируем новый уникальный ID
-            var newId = Guid.NewGuid().ToString("N"); // без дефисов, короче
-            File.WriteAllText(clientIdFile, newId);
-            return newId;
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            var id = Guid.NewGuid().ToString("N");
+            File.WriteAllText(path, id);
+            return id;
         }
         catch
         {
-            // Если не можем сохранить, генерируем временный ID
-            return Guid.NewGuid().ToString("N");
+            return "temp-" + Guid.NewGuid().ToString("N");
         }
     }
 }

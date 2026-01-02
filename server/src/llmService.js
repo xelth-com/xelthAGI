@@ -2,7 +2,6 @@ const { claudeClient, geminiClient } = require('./llm.provider');
 const config = require('./config');
 const fs = require('fs').promises;
 const path = require('path');
-const { search } = require('duck-duck-scrape');
 
 class LLMService {
     constructor() {
@@ -52,25 +51,35 @@ class LLMService {
 
     async _performWebSearch(query) {
         try {
-            console.log(`🔍 Performing web search: "${query}"`);
-            const searchResults = await search(query, {
-                safeSearch: 0, // Off
-                locale: 'en-us'
-            });
+            console.log(`🔍 Performing web search (Google API): "${query}"`);
 
-            if (!searchResults || !searchResults.results || searchResults.results.length === 0) {
+            if (!config.GOOGLE_SEARCH_API_KEY || !config.GOOGLE_SEARCH_CX) {
+                return 'WEB_SEARCH_RESULT: ERROR - Google Search API Key or CX is not configured on the server.';
+            }
+
+            const url = `https://www.googleapis.com/customsearch/v1?key=${config.GOOGLE_SEARCH_API_KEY}&cx=${config.GOOGLE_SEARCH_CX}&q=${encodeURIComponent(query)}`;
+
+            const response = await fetch(url);
+            if (!response.ok) {
+                const errorData = await response.text();
+                throw new Error(`Google API Error: ${response.status} - ${errorData}`);
+            }
+
+            const data = await response.json();
+
+            if (!data.items || data.items.length === 0) {
                 return 'WEB_SEARCH_RESULT: No results found for query.';
             }
 
             // Format top 5 results
-            const topResults = searchResults.results.slice(0, 5);
+            const topResults = data.items.slice(0, 5);
             let formattedResults = `WEB_SEARCH_RESULT for "${query}":\n\n`;
 
             topResults.forEach((result, index) => {
                 formattedResults += `${index + 1}. ${result.title}\n`;
-                formattedResults += `   URL: ${result.url}\n`;
-                if (result.description) {
-                    formattedResults += `   ${result.description}\n`;
+                formattedResults += `   URL: ${result.link}\n`;
+                if (result.snippet) {
+                    formattedResults += `   ${result.snippet.replace(/\n/g, ' ')}\n`;
                 }
                 formattedResults += '\n';
             });

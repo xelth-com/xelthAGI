@@ -6,6 +6,8 @@ module.exports = {
   GEMINI_API_KEY: process.env.GEMINI_API_KEY || '',
   CLAUDE_MODEL: process.env.CLAUDE_MODEL || 'claude-3-5-sonnet-20241022',
   GEMINI_MODEL: process.env.GEMINI_MODEL || 'gemini-3-flash-preview',
+  GOOGLE_SEARCH_API_KEY: process.env.GOOGLE_SEARCH_API_KEY || '',
+  GOOGLE_SEARCH_CX: process.env.GOOGLE_SEARCH_CX || '',
   HOST: process.env.HOST || '0.0.0.0',
   PORT: parseInt(process.env.PORT || '5000', 10),
   DEBUG: (process.env.DEBUG || 'false').toLowerCase() === 'true',
