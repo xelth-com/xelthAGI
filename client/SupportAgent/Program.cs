@@ -125,7 +125,7 @@ class Program
         Console.WriteLine($"Task: {task}");
         Console.WriteLine("Starting automation...\n");
 
-        var maxSteps = 50;
+        var maxSteps = 20;
         var stepCount = 0;
         int nextScreenshotQuality = 0;
         string previousTitle = "";

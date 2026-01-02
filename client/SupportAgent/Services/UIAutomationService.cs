@@ -26,6 +26,7 @@ public class UIAutomationService : IDisposable
     private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
 
     private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+    private static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
     private const uint SWP_NOSIZE = 0x0001;
     private const uint SWP_NOMOVE = 0x0002;
     private const uint SWP_SHOWWINDOW = 0x0040;
@@ -37,6 +38,9 @@ public class UIAutomationService : IDisposable
 
     // Current active window (can be switched dynamically)
     public Window? CurrentWindow { get; private set; }
+
+    // Track last interacted window for cleanup
+    private Window? _lastInteractedWindow;
 
     // Clipboard content storage for read_clipboard command
     public string? LastClipboardContent { get; private set; }
@@ -273,36 +277,38 @@ public class UIAutomationService : IDisposable
     {
         try
         {
-            if (IsWindowInFocus(window))
+            var currentHandle = window.Properties.NativeWindowHandle.ValueOrDefault;
+
+            // CLEANUP: If we switched windows, release the previous one from TopMost
+            if (_lastInteractedWindow != null)
             {
-                return true; // Окно уже в фокусе
+                try
+                {
+                    var oldHandle = _lastInteractedWindow.Properties.NativeWindowHandle.ValueOrDefault;
+                    if (oldHandle != IntPtr.Zero && oldHandle != currentHandle)
+                    {
+                        // Downgrade previous window to Normal (Not TopMost)
+                        SetWindowPos(oldHandle, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+                    }
+                }
+                catch { /* Ignore errors if old window is closed */ }
             }
 
-            Console.WriteLine("  ⚠️  Target window lost focus! Attempting to restore...");
+            _lastInteractedWindow = window;
 
-            var targetHandle = window.Properties.NativeWindowHandle.ValueOrDefault;
+            // PROACTIVE LOCK: Set TOPMOST FIRST to HOLD focus, not just restore it
+            // This prevents focus loss during the action, not after
+            SetWindowPos(currentHandle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+            SetForegroundWindow(currentHandle);
 
-            // Try SetForegroundWindow first (more polite)
-            bool success = SetForegroundWindow(targetHandle);
-
-            // If that fails, use SetWindowPos with TOPMOST (more aggressive, but no Admin required)
-            if (!success)
+            if (!IsWindowInFocus(window))
             {
-                SetWindowPos(targetHandle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
-                success = true; // SetWindowPos doesn't fail in practice
-            }
-
-            if (success)
-            {
+                Console.WriteLine("  ⚠️  Target window lost focus! Attempting to restore...");
                 Thread.Sleep(200); // Даем время на переключение фокуса
                 Console.WriteLine("  ✅ Focus restored to target window");
-                return true;
             }
-            else
-            {
-                Console.WriteLine("  ❌ Failed to restore window focus!");
-                return false;
-            }
+
+            return true;
         }
         catch (Exception ex)
         {
@@ -994,6 +1000,22 @@ public class UIAutomationService : IDisposable
 
     public void Dispose()
     {
+        // FINAL CLEANUP: Restore window state
+        try
+        {
+            if (_lastInteractedWindow != null)
+            {
+                var handle = _lastInteractedWindow.Properties.NativeWindowHandle.ValueOrDefault;
+                if (handle != IntPtr.Zero)
+                {
+                    // Restore to Normal (Not TopMost)
+                    SetWindowPos(handle, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+                    Console.WriteLine("  🧹 Cleanup: Released window from Always-On-Top");
+                }
+            }
+        }
+        catch { /* Ignore cleanup errors */ }
+
         _automation?.Dispose();
         _httpClient?.Dispose();
     }
