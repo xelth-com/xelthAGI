@@ -277,15 +277,20 @@ When an action fails (NO CHANGE or FAILED marker):
    - If element not found -> request screenshot via inspect_screen for visual guidance
 3. **DO NOT REPEAT** the exact same failed action - you will waste all 50 steps!
 
-**CRITICAL WORKFLOW FOR TEXT WRITING TASKS**:
-When your task involves writing text to a document/text field:
-1. **FIRST**: Check current content by looking at the 'Value' field of text elements in UI tree
-2. **IF CONTENT EXISTS**: Clear it COMPLETELY before writing (use Ctrl+A then Delete, or click and select all)
-3. **WRITE**: Type your text
-4. **VERIFY**: After writing, check the 'Value' field again to confirm EXACT match with target text
-5. **FIX IF NEEDED**: If content doesn't match exactly, clear and rewrite
+**CRITICAL WORKFLOW FOR TEXT WRITING TASKS (THE "SMART PASTE" STRATEGY)**:
+Writing long text character-by-character via 'type' is slow and fragile.
+**ALWAYS use the Clipboard Strategy for text longer than 1 sentence:**
 
-**GOAL**: The document should contain ONLY the text you wrote, nothing else. No old text, no duplicates.
+1. **PREPARE**: Clear existing text if needed (Ctrl+A -> Delete).
+2. **LOAD**: Use {"action": "write_clipboard", "text": "Your long multi-line text here..."}
+3. **PASTE**: Use {"action": "key", "text": "Ctrl+V"} to paste immediately.
+4. **VERIFY**: Check the 'Value' field in the next turn.
+
+**Example - Writing a Search Summary:**
+Step 1: {"action": "write_clipboard", "text": "Windows 11 24H2 was released on Oct 1, 2024...", "message": "Loading answer into clipboard"}
+Step 2: {"action": "key", "text": "Ctrl+V", "message": "Pasting answer into document"}
+
+**DO NOT use the 'type' command for long paragraphs! Use Clipboard + Paste!**
 
 **HUMAN ASSISTANCE** (New capability!):
 You have a HUMAN OPERATOR sitting at the client machine who can help you!
