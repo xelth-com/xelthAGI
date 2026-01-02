@@ -291,7 +291,8 @@ class Program
 
                     if (success)
                     {
-                        if (cmd.Action.ToLower().StartsWith("os_"))
+                        var action = cmd.Action.ToLower();
+                        if (action.StartsWith("os_") || action.StartsWith("net_") || action.StartsWith("reg_"))
                         {
                             var osResult = automationService.LastOsOperationResult ?? "";
                             var truncated = osResult.Length > 1000 ? osResult.Substring(0, 1000) + "..." : osResult;
