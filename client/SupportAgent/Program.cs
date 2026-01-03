@@ -246,15 +246,33 @@ class Program
                         Console.WriteLine($"  Target: {cmd.Text}");
                         Console.ResetColor();
 
-                        Console.Write("\n  Do you want to proceed? [Y/n]: ");
-                        var confirmation = Console.ReadLine()?.Trim().ToLower() ?? "n";
+                        // GUI Confirmation Dialog
+                        DialogResult result = ShowSafetyDialog(
+                            "⚠️ Security Alert: High-Risk Action",
+                            $"The agent wants to execute a high-risk command:\n\nACTION: {cmd.Action.ToUpper()}\nTARGET: {cmd.Text}\n\nDo you want to allow this?"
+                        );
 
-                        if (confirmation != "y" && confirmation != "yes" && confirmation != "")
+                        if (result == DialogResult.Yes)
+                        {
+                            Console.ForegroundColor = ConsoleColor.Green;
+                            Console.WriteLine($"  ✅ Action APPROVED by user");
+                            Console.ResetColor();
+                            // Proceed to execution
+                        }
+                        else if (result == DialogResult.Cancel) // "Don't Know" button
                         {
                             Console.ForegroundColor = ConsoleColor.Yellow;
+                            Console.WriteLine($"  ❓ Action SUSPENDED (User needs explanation)");
+                            Console.ResetColor();
+                            _actionHistory.Add($"SUSPENDED: User clicked 'Don't Know' for {cmd.Action}. REQUIRED: Use 'ask_user' to explain WHY this is safe/necessary, or switch to a safer method.");
+                            continue;
+                        }
+                        else // "No" button
+                        {
+                            Console.ForegroundColor = ConsoleColor.Red;
                             Console.WriteLine($"  ❌ Action DENIED by user");
                             Console.ResetColor();
-                            _actionHistory.Add($"FAILED: User denied {cmd.Action} {cmd.Text} - Safety check");
+                            _actionHistory.Add($"FAILED: User explicitly denied {cmd.Action} {cmd.Text}. STOP trying this action. Try a different approach.");
                             continue;
                         }
                     }
@@ -415,6 +433,78 @@ class Program
     }
 
     // Helper method to show a GUI Input Dialog with Force Foreground
+    // Helper method to show a 3-Button Safety Dialog
+    private static DialogResult ShowSafetyDialog(string title, string prompt)
+    {
+        Form promptForm = new Form()
+        {
+            Width = 500,
+            Height = 220,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            Text = title,
+            StartPosition = FormStartPosition.CenterScreen,
+            TopMost = true,
+            WindowState = FormWindowState.Normal,
+            MinimizeBox = false,
+            MaximizeBox = false,
+            ShowInTaskbar = true
+        };
+
+        Label textLabel = new Label()
+        {
+            Left = 20,
+            Top = 20,
+            Width = 440,
+            Text = prompt,
+            AutoSize = false,
+            Height = 100
+        };
+
+        Button yesButton = new Button()
+        {
+            Text = "Yes",
+            Left = 160,
+            Width = 100,
+            Top = 140,
+            DialogResult = DialogResult.Yes
+        };
+
+        Button noButton = new Button()
+        {
+            Text = "No",
+            Left = 270,
+            Width = 100,
+            Top = 140,
+            DialogResult = DialogResult.No
+        };
+
+        Button dontKnowButton = new Button()
+        {
+            Text = "Don't Know",
+            Left = 380,
+            Width = 100,
+            Top = 140,
+            DialogResult = DialogResult.Cancel
+        };
+
+        promptForm.Controls.Add(textLabel);
+        promptForm.Controls.Add(yesButton);
+        promptForm.Controls.Add(noButton);
+        promptForm.Controls.Add(dontKnowButton);
+
+        // Aggressively force focus when shown
+        promptForm.Shown += (sender, e) =>
+        {
+            ForceWindowToForeground(promptForm.Handle);
+            promptForm.Activate();
+            promptForm.BringToFront();
+        };
+
+        // Show and wait
+        ForceWindowToForeground(promptForm.Handle);
+        return promptForm.ShowDialog();
+    }
+
     private static string ShowInputDialog(string title, string prompt)
     {
         Form promptForm = new Form()
