@@ -1,46 +1,71 @@
-// Mission Control - Real-time Dashboard
-// Polls /api/state every 2 seconds for updates
+// Mission Control - Real-time Dashboard v2.0
+// Polls API every 2 seconds
 
-const POLL_INTERVAL = 2000; // 2 seconds
+const POLL_INTERVAL = 2000;
 let previousHistoryLength = 0;
+let currentSessionName = '';
+let currentStepCount = 0;
 
 // DOM Elements
 const statusDot = document.getElementById('statusDot');
 const statusText = document.getElementById('statusText');
 const taskText = document.getElementById('taskText');
-const screenshotViewer = document.getElementById('screenshotViewer');
+const agentViewer = document.getElementById('agentViewer');
+const shadowViewer = document.getElementById('shadowViewer');
+const playbackInfo = document.getElementById('playbackInfo');
 const agentThoughts = document.getElementById('agentThoughts');
 const statActions = document.getElementById('statActions');
 const statWindow = document.getElementById('statWindow');
 const statLastSeen = document.getElementById('statLastSeen');
 const historyList = document.getElementById('historyList');
+const logsList = document.getElementById('logsList');
+const debugToggle = document.getElementById('debugToggle');
 
-// Fetch and update dashboard state
+// Toggle Debug Mode (UPPERCASE API)
+debugToggle.addEventListener('change', async (e) => {
+    try {
+        const response = await fetch('API/SETTINGS', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ debug: e.target.checked })
+        });
+        const data = await response.json();
+        console.log('Debug mode set to:', data.debug);
+    } catch (err) {
+        console.error('Failed to toggle debug:', err);
+        // Revert toggle if failed
+        e.target.checked = !e.target.checked;
+    }
+});
+
+// Fetch and update dashboard state (UPPERCASE API)
 async function updateDashboard() {
     try {
-        const response = await fetch('api/state');
-        if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
-        }
+        const response = await fetch('API/STATE');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
         const state = await response.json();
 
-        // Update status indicator
+        // Update basic info
         updateStatus(state.isOnline);
-
-        // Update task
         updateTask(state.task);
-
-        // Update screenshot
-        updateScreenshot(state.screenshot);
-
-        // Update agent thoughts
+        updateStats(state);
         updateThoughts(state.lastDecision);
 
-        // Update statistics
-        updateStats(state);
+        // Sync debug toggle with server state
+        if (state.serverDebugMode !== undefined && document.activeElement !== debugToggle) {
+            debugToggle.checked = state.serverDebugMode;
+        }
 
-        // Update history
+        // Store session info for image construction
+        if (state.sessionName) {
+            currentSessionName = state.sessionName;
+        }
+
+        // Update Images
+        updateAgentVision(state.screenshot);
+
+        // Update History (and triggers shadow image update for latest)
         updateHistory(state.history);
 
     } catch (error) {
@@ -49,40 +74,59 @@ async function updateDashboard() {
     }
 }
 
-// Update status indicator
+// Update status
 function updateStatus(isOnline) {
     if (isOnline) {
-        statusDot.classList.remove('offline');
-        statusDot.classList.add('online');
+        statusDot.className = 'status-dot online';
         statusText.textContent = 'Online';
     } else {
-        statusDot.classList.remove('online');
-        statusDot.classList.add('offline');
+        statusDot.className = 'status-dot offline';
         statusText.textContent = 'Offline';
     }
 }
 
-// Update current task
+// Update task
 function updateTask(task) {
-    if (task && task.trim()) {
-        taskText.textContent = task;
-    } else {
-        taskText.textContent = 'No active task';
-    }
+    taskText.textContent = (task && task.trim()) ? task : 'No active task';
 }
 
-// Update screenshot viewer
-function updateScreenshot(screenshotBase64) {
+// Update Agent Vision (Cropped/Focused)
+function updateAgentVision(screenshotBase64) {
     if (screenshotBase64 && screenshotBase64.trim()) {
-        screenshotViewer.classList.remove('empty');
-        screenshotViewer.innerHTML = `<img src="data:image/jpeg;base64,${screenshotBase64}" alt="Agent Screenshot">`;
+        agentViewer.classList.remove('empty');
+        agentViewer.innerHTML = `<img src="data:image/jpeg;base64,${screenshotBase64}" alt="Agent Vision">`;
     } else {
-        screenshotViewer.classList.add('empty');
-        screenshotViewer.innerHTML = '<span>No screenshot available</span>';
+        agentViewer.classList.add('empty');
+        agentViewer.innerHTML = '<span class="placeholder">Waiting for request...</span>';
     }
 }
 
-// Update agent thoughts
+// Load Shadow Image for a specific step
+function loadShadowImage(stepNumber) {
+    if (!currentSessionName) return;
+
+    // Construct URL: /AGI/SCREENSHOTS/{Session}/{step_00X}.jpg
+    const paddedStep = String(stepNumber).padStart(3, '0');
+    const imageUrl = `/AGI/SCREENSHOTS/${currentSessionName}/step_${paddedStep}.jpg`;
+
+    // Create image with error handling
+    const img = new Image();
+    img.onload = () => {
+        shadowViewer.classList.remove('empty');
+        shadowViewer.innerHTML = '';
+        shadowViewer.appendChild(img);
+        playbackInfo.textContent = `Viewing Step #${stepNumber}`;
+    };
+    img.onerror = () => {
+        // Only show error if we expected an image (i.e. not step 0)
+        if (stepNumber > 0) {
+            playbackInfo.textContent = `Step #${stepNumber}: No image available`;
+        }
+    };
+    img.src = imageUrl;
+}
+
+// Update thoughts
 function updateThoughts(lastDecision) {
     if (lastDecision && lastDecision.reasoning) {
         agentThoughts.textContent = lastDecision.reasoning;
@@ -93,43 +137,24 @@ function updateThoughts(lastDecision) {
     }
 }
 
-// Update statistics
+// Update stats
 function updateStats(state) {
-    // Total actions
     statActions.textContent = state.totalActions || 0;
 
-    // Current window
     if (state.uiState && state.uiState.WindowTitle) {
-        const windowTitle = state.uiState.WindowTitle;
-        // Truncate long titles
-        statWindow.textContent = windowTitle.length > 15
-            ? windowTitle.substring(0, 15) + '...'
-            : windowTitle;
+        const title = state.uiState.WindowTitle;
+        statWindow.textContent = title.length > 15 ? title.substring(0, 15) + '...' : title;
     } else {
         statWindow.textContent = '—';
     }
 
-    // Last seen (time ago)
     if (state.lastSeen) {
-        const lastSeenDate = new Date(state.lastSeen);
-        const now = new Date();
-        const diffSeconds = Math.floor((now - lastSeenDate) / 1000);
-
-        if (diffSeconds < 5) {
-            statLastSeen.textContent = 'Now';
-        } else if (diffSeconds < 60) {
-            statLastSeen.textContent = `${diffSeconds}s`;
-        } else if (diffSeconds < 3600) {
-            statLastSeen.textContent = `${Math.floor(diffSeconds / 60)}m`;
-        } else {
-            statLastSeen.textContent = `${Math.floor(diffSeconds / 3600)}h`;
-        }
-    } else {
-        statLastSeen.textContent = '—';
+        const diff = Math.floor((new Date() - new Date(state.lastSeen)) / 1000);
+        statLastSeen.textContent = diff < 60 ? `${diff}s ago` : `${Math.floor(diff/60)}m ago`;
     }
 }
 
-// Update action history
+// Update History List
 function updateHistory(history) {
     if (!history || history.length === 0) {
         historyList.innerHTML = '<div class="empty-state">No actions yet</div>';
@@ -137,75 +162,56 @@ function updateHistory(history) {
         return;
     }
 
-    // Only update if history changed
-    if (history.length === previousHistoryLength) {
-        return;
+    // Only update DOM if history changed
+    if (history.length === previousHistoryLength) return;
+
+    // If new steps added, update shadow view to latest
+    if (history.length > previousHistoryLength) {
+        loadShadowImage(history.length);
     }
 
     previousHistoryLength = history.length;
-
-    // Clear and rebuild history list
+    currentStepCount = history.length;
     historyList.innerHTML = '';
 
-    // Show last 20 items (reverse order - newest first)
-    const recentHistory = history.slice(-20).reverse();
+    // Show reverse order
+    const recentHistory = history.slice().reverse();
 
     recentHistory.forEach((item, index) => {
+        const actualIndex = history.length - index; // Step number 1-based
         const historyItem = document.createElement('div');
         historyItem.className = 'history-item';
 
-        // Determine item type for styling
-        if (item.includes('ERROR') || item.includes('FAILED')) {
-            historyItem.classList.add('error');
-        } else if (item.includes('SUCCESS') || item.includes('✅')) {
-            historyItem.classList.add('success');
-        } else {
-            historyItem.classList.add('info');
-        }
+        if (item.includes('ERROR') || item.includes('FAILED')) historyItem.classList.add('error');
+        else if (item.includes('SUCCESS') || item.includes('✅')) historyItem.classList.add('success');
+        else historyItem.classList.add('info');
 
-        // Create timestamp (actual index from end)
-        const actualIndex = history.length - index;
+        // Click handler for Time Travel
+        historyItem.onclick = () => {
+            loadShadowImage(actualIndex);
+            // Highlight active
+            document.querySelectorAll('.history-item').forEach(el => el.style.borderRight = 'none');
+            historyItem.style.borderRight = '4px solid var(--accent-primary)';
+        };
+
         const timestamp = document.createElement('div');
         timestamp.className = 'timestamp';
-        timestamp.textContent = `#${actualIndex}`;
+        timestamp.textContent = `Step #${actualIndex}`;
 
-        // Create action text
         const action = document.createElement('div');
         action.className = 'action';
-
-        // Truncate very long messages
-        let displayText = item;
-        if (displayText.length > 200) {
-            displayText = displayText.substring(0, 200) + '...';
-        }
-        action.textContent = displayText;
+        action.textContent = item.length > 150 ? item.substring(0, 150) + '...' : item;
 
         historyItem.appendChild(timestamp);
         historyItem.appendChild(action);
         historyList.appendChild(historyItem);
     });
-
-    // Auto-scroll to top (newest items)
-    historyList.scrollTop = 0;
 }
 
-// Format time ago
-function timeAgo(dateString) {
-    const date = new Date(dateString);
-    const now = new Date();
-    const seconds = Math.floor((now - date) / 1000);
-
-    if (seconds < 10) return 'just now';
-    if (seconds < 60) return `${seconds}s ago`;
-    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-    return `${Math.floor(seconds / 86400)}d ago`;
-}
-
-// Fetch logs list
+// Update Logs List (UPPERCASE API)
 async function updateLogs() {
     try {
-        const response = await fetch('api/logs');
+        const response = await fetch('API/LOGS');
         if (!response.ok) return;
         const logs = await response.json();
 
@@ -217,11 +223,14 @@ async function updateLogs() {
 
         logsList.innerHTML = logs.map(log => `
             <div class="history-item info" style="display: flex; justify-content: space-between; align-items: center;">
-                <div>
+                <div style="overflow: hidden; white-space: nowrap; text-overflow: ellipsis; max-width: 60%;">
                     <div class="timestamp">${new Date(log.time).toLocaleTimeString()}</div>
-                    <div class="action">${log.name}</div>
+                    <div class="action" style="font-size: 0.8rem;">${log.name}</div>
                 </div>
-                <a href="${log.url}" target="_blank" style="color: var(--accent-primary); text-decoration: none; border: 1px solid var(--accent-primary); padding: 2px 8px; border-radius: 4px; font-size: 0.8rem;">JSON ⬇️</a>
+                <div style="display: flex; gap: 0.5rem;">
+                    ${log.screenshotsUrl ? `<a href="${log.screenshotsUrl}" target="_blank" class="badge debug" style="text-decoration: none;">📁 PICS</a>` : ''}
+                    <a href="${log.url}" target="_blank" class="badge" style="text-decoration: none;">⬇️ JSON</a>
+                </div>
             </div>
         `).join('');
     } catch (e) {
@@ -229,14 +238,8 @@ async function updateLogs() {
     }
 }
 
-// Initial update
+// Init
 updateDashboard();
 updateLogs();
-
-// Poll for updates
 setInterval(updateDashboard, POLL_INTERVAL);
-setInterval(updateLogs, 5000); // Poll logs every 5s
-
-// Log to console
-console.log('🚀 Mission Control dashboard initialized');
-console.log(`📡 Polling /api/state every ${POLL_INTERVAL/1000} seconds`);
+setInterval(updateLogs, 5000);

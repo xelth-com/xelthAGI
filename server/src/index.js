@@ -70,6 +70,7 @@ setInterval(() => {
 let globalState = {
     lastSeen: null,
     clientId: 'unknown',
+    sessionName: '', // Added for frontend URL construction
     uiState: {
         WindowTitle: '',
         ProcessName: '',
@@ -82,7 +83,7 @@ let globalState = {
         message: '',
         reasoning: ''
     },
-    screenshot: null,
+    screenshot: null, // Agent's cropped vision
     isOnline: false,
     totalActions: 0
 };
@@ -191,6 +192,9 @@ app.post('/DECIDE', async (req, res) => {
             .substring(0, 50);
         const dateStr = new Date().toISOString().slice(0, 10);
         const sessionName = `${safeTaskName}_${shortId}_${dateStr}`;
+
+        // Update global state
+        globalState.sessionName = sessionName;
 
         // Handle Shadow Debug Screenshot (Only in DEBUG mode)
         let debugScreenshotUrl = null;
@@ -308,28 +312,50 @@ app.post('/DECIDE', async (req, res) => {
     }
 });
 
-// Mission Control API - Get current agent state
-app.get('/api/state', (req, res) => {
+// Mission Control API - Get current agent state (UPPERCASE)
+app.get('/API/STATE', (req, res) => {
     // Mark as offline if last seen more than 30 seconds ago
     if (globalState.lastSeen) {
         const timeSinceLastSeen = Date.now() - new Date(globalState.lastSeen).getTime();
         globalState.isOnline = timeSinceLastSeen < 30000; // 30 seconds
     }
 
-    res.json(globalState);
+    // Inject current server debug status
+    const responseWithConfig = {
+        ...globalState,
+        serverDebugMode: config.DEBUG
+    };
+
+    res.json(responseWithConfig);
 });
 
-// API to list available logs
-app.get('/api/logs', (req, res) => {
+// API to toggle Debug Mode dynamically (UPPERCASE)
+app.post('/API/SETTINGS', (req, res) => {
+    if (typeof req.body.debug === 'boolean') {
+        config.DEBUG = req.body.debug;
+        console.log(`🔧 Runtime Config Change: DEBUG = ${config.DEBUG}`);
+        return res.json({ success: true, debug: config.DEBUG });
+    }
+    res.status(400).json({ error: "Invalid parameter" });
+});
+
+// API to list available logs (UPPERCASE)
+app.get('/API/LOGS', (req, res) => {
     try {
         const files = fs.readdirSync(logsDir)
             .filter(f => f.endsWith('.json'))
-            .map(f => ({
-                name: f,
-                // Update to uppercase LOGS
-                url: `/AGI/LOGS/${f}`,
-                time: fs.statSync(path.join(logsDir, f)).mtime
-            }))
+            .map(f => {
+                const sessionName = f.replace('.json', '');
+                const screenshotPath = path.join(screenshotsDir, sessionName);
+                const hasScreenshots = fs.existsSync(screenshotPath);
+
+                return {
+                    name: f,
+                    url: `/AGI/LOGS/${f}`,
+                    screenshotsUrl: hasScreenshots ? `/AGI/SCREENSHOTS/${sessionName}/` : null,
+                    time: fs.statSync(path.join(logsDir, f)).mtime
+                };
+            })
             .sort((a, b) => b.time - a.time); // Newest first
         res.json(files);
     } catch (e) {

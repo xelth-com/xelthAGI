@@ -10,9 +10,16 @@
     <!-- Header -->
     <header class="header">
         <h1>⚡ xelthAGI Mission Control</h1>
-        <div class="status">
-            <div class="status-dot offline" id="statusDot"></div>
-            <span id="statusText">Offline</span>
+        <div class="controls">
+            <label class="toggle-switch">
+                <input type="checkbox" id="debugToggle">
+                <span class="slider"></span>
+                <span class="label">Save Debug Screens</span>
+            </label>
+            <div class="status">
+                <div class="status-dot offline" id="statusDot"></div>
+                <span id="statusText">Offline</span>
+            </div>
         </div>
     </header>
 
@@ -24,12 +31,31 @@
 
     <!-- Main Content -->
     <main class="main-container">
-        <!-- Left Column: Screenshot & Thoughts -->
-        <div>
+        <!-- Left Column: Visuals -->
+        <div class="visuals-column">
+
+            <!-- Agent Vision (What AI Requested) -->
             <div class="panel">
-                <h3>🖥️ Live Screenshot</h3>
-                <div class="screenshot-viewer empty" id="screenshotViewer">
-                    <span>No screenshot available</span>
+                <div class="panel-header">
+                    <h3>🤖 Agent Vision</h3>
+                    <span class="badge">Context Aware</span>
+                </div>
+                <div class="screenshot-viewer" id="agentViewer">
+                    <span class="placeholder">Waiting for request...</span>
+                </div>
+            </div>
+
+            <!-- Shadow Recorder (What actually happened) -->
+            <div class="panel">
+                <div class="panel-header">
+                    <h3>📸 Shadow Recorder</h3>
+                    <span class="badge debug">Full Desktop</span>
+                </div>
+                <div class="screenshot-viewer" id="shadowViewer">
+                    <span class="placeholder">Waiting for step...</span>
+                </div>
+                <div class="playback-controls" id="playbackInfo">
+                    Showing latest
                 </div>
             </div>
 
@@ -67,7 +93,7 @@
             </div>
 
             <div class="panel" style="margin-top: 1.5rem;">
-                <h3>💾 Session Logs (Debug)</h3>
+                <h3>💾 Session Logs</h3>
                 <div class="history-list" id="logsList" style="max-height: 200px;">
                     <div class="empty-state">Loading logs...</div>
                 </div>
