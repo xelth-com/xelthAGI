@@ -71,11 +71,7 @@ class Program
         var task = GetArgument(args, "--task", "");
         var unsafeMode = HasFlag(args, "--unsafe") || HasFlag(args, "--auto-approve");
 
-        if (string.IsNullOrEmpty(targetApp))
-        {
-            Console.WriteLine("Usage: SupportAgent --app <AppName> --task <Task> [--server <URL>] [--unsafe]");
-            return 1;
-        }
+        // targetApp is now optional. If empty, we attach to active window.
 
         if (string.IsNullOrEmpty(task))
         {
@@ -101,27 +97,43 @@ class Program
         }
         Console.WriteLine("✅ Server connected\n");
 
-        Console.WriteLine($"Looking for window: {targetApp}");
-        automationService.FindWindow(targetApp);
-
-        if (automationService.CurrentWindow == null && targetApp.Contains("Notepad", StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrEmpty(targetApp))
         {
-            Console.WriteLine($"⚠️  Window not found. Launching Notepad...");
-            try
+            Console.WriteLine($"Looking for window: {targetApp}");
+            automationService.FindWindow(targetApp);
+
+            if (automationService.CurrentWindow == null && targetApp.Contains("Notepad", StringComparison.OrdinalIgnoreCase))
             {
-                System.Diagnostics.Process.Start("notepad.exe");
-                await Task.Delay(2000);
-                automationService.FindWindow(targetApp);
+                Console.WriteLine($"⚠️  Window not found. Launching Notepad...");
+                try
+                {
+                    System.Diagnostics.Process.Start("notepad.exe");
+                    await Task.Delay(2000);
+                    automationService.FindWindow(targetApp);
+                }
+                catch { }
             }
-            catch { }
+
+            if (automationService.CurrentWindow == null)
+            {
+                Console.WriteLine($"❌ Window '{targetApp}' not found!");
+                return 1;
+            }
+        }
+        else
+        {
+            Console.WriteLine("ℹ️  No app specified. Attaching to active window...");
+            automationService.AttachToActiveWindow();
+            if (automationService.CurrentWindow == null)
+            {
+                Console.WriteLine("⚠️  Could not attach to active window. Will retry in loop.");
+            }
         }
 
-        if (automationService.CurrentWindow == null)
+        if (automationService.CurrentWindow != null)
         {
-            Console.WriteLine($"❌ Window '{targetApp}' not found!");
-            return 1;
+            Console.WriteLine($"✅ Target window: {automationService.CurrentWindow.Name}\n");
         }
-        Console.WriteLine($"✅ Found window: {automationService.CurrentWindow.Name}\n");
 
         Console.WriteLine($"Task: {task}");
         Console.WriteLine("Starting automation...\n");
@@ -140,10 +152,16 @@ class Program
 
             try
             {
+                // If we don't have a window yet (e.g. no --app specified), try to find active one
                 if (automationService.CurrentWindow == null)
                 {
-                    Console.WriteLine("  ❌ Current window is no longer available");
-                    break;
+                    automationService.AttachToActiveWindow();
+                    if (automationService.CurrentWindow == null)
+                    {
+                        Console.WriteLine("  ⏳ Waiting for active window...");
+                        await Task.Delay(1000);
+                        continue;
+                    }
                 }
 
                 Console.WriteLine("  → Scanning UI state...");
@@ -160,8 +178,8 @@ class Program
                 previousContentHash = string.Join("|", textElements.Select(e => e.Value ?? ""));
 
                 // Always capture low-quality Shadow Screenshot for debugging/logging
-                // This allows us to see what happened even if the agent didn't ask for vision
-                uiState.DebugScreenshot = automationService.CaptureFullDesktop(30);
+                // Quality reduced to 20% to save bandwidth
+                uiState.DebugScreenshot = automationService.CaptureFullDesktop(20);
 
                 if (nextScreenshotQuality > 0)
                 {
@@ -291,7 +309,15 @@ class Program
                     if (automationService.CurrentWindow == null)
                     {
                         Console.WriteLine("  ⚠️  Target window lost focus! Attempting to restore...");
-                        automationService.FindWindow(targetApp);
+                        if (!string.IsNullOrEmpty(targetApp))
+                        {
+                            automationService.FindWindow(targetApp);
+                        }
+                        else
+                        {
+                            automationService.AttachToActiveWindow();
+                        }
+
                         if (automationService.CurrentWindow != null)
                         {
                             Console.ForegroundColor = ConsoleColor.Green;
@@ -505,68 +531,113 @@ class Program
         return promptForm.ShowDialog();
     }
 
+    // Helper method to show a Hybrid Input Dialog (Buttons + Text)
     private static string ShowInputDialog(string title, string prompt)
     {
+        string resultValue = "";
+
         Form promptForm = new Form()
         {
-            Width = 500,
-            Height = 200,
+            Width = 600,
+            Height = 480,
             FormBorderStyle = FormBorderStyle.FixedDialog,
             Text = title,
             StartPosition = FormStartPosition.CenterScreen,
-            TopMost = true, // Force on top of other windows
-            WindowState = FormWindowState.Normal, // Ensure not minimized
-            MinimizeBox = false, // Disable minimize button
-            MaximizeBox = false,
-            ShowInTaskbar = true
+            TopMost = true,
+            ControlBox = false // No close button, force a choice
         };
 
-        Label textLabel = new Label()
+        // Header
+        Label headerLabel = new Label()
+        {
+            Left = 20, Top = 15, Width = 540, Height = 20,
+            Text = "The AI Agent needs your input:",
+            Font = new Font("Segoe UI", 9, FontStyle.Bold)
+        };
+
+        // Scrollable Text Area for Agent's Message
+        TextBox messageBox = new TextBox()
         {
             Left = 20,
-            Top = 20,
-            Width = 440,
+            Top = 40,
+            Width = 540,
+            Height = 180,
+            Multiline = true,
+            ReadOnly = true,
+            ScrollBars = ScrollBars.Vertical,
+            BackColor = Color.White,
             Text = prompt,
-            AutoSize = false,
-            Height = 60
+            Font = new Font("Segoe UI", 10)
+        };
+
+        // --- Quick Actions Section ---
+        GroupBox groupActions = new GroupBox()
+        {
+            Left = 20, Top = 230, Width = 540, Height = 80,
+            Text = "Quick Reply (Click one)"
+        };
+
+        Button btnYes = new Button() { Text = "✅ Yes / Allow", Left = 20, Top = 25, Width = 150, Height = 40, BackColor = Color.LightGreen };
+        Button btnNo = new Button() { Text = "❌ No / Deny", Left = 190, Top = 25, Width = 150, Height = 40, BackColor = Color.LightCoral };
+        Button btnDunno = new Button() { Text = "❓ Don't Know", Left = 360, Top = 25, Width = 150, Height = 40 };
+
+        btnYes.Click += (s, e) => { resultValue = "Yes"; promptForm.DialogResult = DialogResult.OK; promptForm.Close(); };
+        btnNo.Click += (s, e) => { resultValue = "No"; promptForm.DialogResult = DialogResult.OK; promptForm.Close(); };
+        btnDunno.Click += (s, e) => { resultValue = "Don't Know"; promptForm.DialogResult = DialogResult.OK; promptForm.Close(); };
+
+        groupActions.Controls.Add(btnYes);
+        groupActions.Controls.Add(btnNo);
+        groupActions.Controls.Add(btnDunno);
+
+        // --- Custom Input Section ---
+        GroupBox groupInput = new GroupBox()
+        {
+            Left = 20, Top = 320, Width = 540, Height = 80,
+            Text = "Or type specific data (e.g., code, name, path)"
         };
 
         TextBox inputBox = new TextBox()
         {
-            Left = 20,
-            Top = 90,
-            Width = 440
+            Left = 20, Top = 30, Width = 380, Font = new Font("Segoe UI", 10)
         };
 
-        Button confirmation = new Button()
+        Button btnSend = new Button()
         {
-            Text = "OK",
-            Left = 360,
-            Width = 100,
-            Top = 120,
-            DialogResult = DialogResult.OK
+            Text = "Send Text",
+            Left = 410, Top = 28, Width = 110, Height = 30,
+            BackColor = Color.LightBlue
         };
 
-        confirmation.Click += (sender, e) => { promptForm.Close(); };
-        promptForm.Controls.Add(textLabel);
-        promptForm.Controls.Add(inputBox);
-        promptForm.Controls.Add(confirmation);
-        promptForm.AcceptButton = confirmation;
+        btnSend.Click += (s, e) => {
+            resultValue = inputBox.Text;
+            if (string.IsNullOrWhiteSpace(resultValue)) return; // Don't send empty
+            promptForm.DialogResult = DialogResult.OK;
+            promptForm.Close();
+        };
 
-        // Aggressively force focus when shown
+        // Allow Enter key to trigger Send
+        inputBox.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) btnSend.PerformClick(); };
+
+        groupInput.Controls.Add(inputBox);
+        groupInput.Controls.Add(btnSend);
+
+        promptForm.Controls.Add(headerLabel);
+        promptForm.Controls.Add(messageBox);
+        promptForm.Controls.Add(groupActions);
+        promptForm.Controls.Add(groupInput);
+
+        // Aggressively force focus
         promptForm.Shown += (sender, e) =>
         {
             ForceWindowToForeground(promptForm.Handle);
             promptForm.Activate();
-            promptForm.BringToFront();
-            inputBox.Focus();
         };
 
-        // Ensure focus on input box
-        promptForm.ActiveControl = inputBox;
+        // Sound alert
+        System.Media.SystemSounds.Exclamation.Play();
 
-        // Show as dialog blocks execution until closed
-        return promptForm.ShowDialog() == DialogResult.OK ? inputBox.Text : "";
+        promptForm.ShowDialog();
+        return resultValue;
     }
 
     private static string GetArgument(string[] args, string name, string defaultValue)

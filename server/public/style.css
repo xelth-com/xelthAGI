@@ -239,23 +239,25 @@ body {
     padding-bottom: 0.5rem;
 }
 
-/* Screenshot Viewer */
+/* Screenshot Viewer (Adaptive) */
 .screenshot-viewer {
     background: var(--bg-tertiary);
     border-radius: 4px;
-    padding: 1rem;
-    min-height: 400px;
+    padding: 0; /* Remove padding to maximize space */
+    height: 400px; /* Fixed height container */
     display: flex;
     align-items: center;
     justify-content: center;
-    border: 2px dashed var(--border-color);
+    border: 1px solid var(--border-color);
+    overflow: hidden;
+    position: relative;
 }
 
 .screenshot-viewer img {
-    max-width: 100%;
-    height: auto;
-    border-radius: 4px;
-    box-shadow: 0 4px 15px rgba(0, 255, 159, 0.2);
+    width: 100%;
+    height: 100%;
+    object-fit: contain; /* Scale image to fit within container without cropping */
+    display: block;
 }
 
 .screenshot-viewer.empty {

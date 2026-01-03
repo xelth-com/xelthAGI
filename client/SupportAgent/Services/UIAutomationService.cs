@@ -56,6 +56,34 @@ public class UIAutomationService : IDisposable
     }
 
     /// <summary>
+    /// Attaches to the currently active (foreground) window
+    /// </summary>
+    public Window? AttachToActiveWindow()
+    {
+        try
+        {
+            var handle = GetForegroundWindow();
+            if (handle != IntPtr.Zero)
+            {
+                var element = _automation.FromHandle(handle);
+                var window = element.AsWindow();
+
+                if (window != null)
+                {
+                    CurrentWindow = window;
+                    Console.WriteLine($"  ✅ Attached to active window: {window.Name}");
+                    return CurrentWindow;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  ⚠️ Failed to attach to active window: {ex.Message}");
+        }
+        return null;
+    }
+
+    /// <summary>
     /// Находит окно по имени процесса или заголовку
     /// Process name matching has highest priority to solve localization issues
     /// </summary>
