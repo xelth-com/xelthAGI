@@ -12,10 +12,10 @@ if (config.CLAUDE_API_KEY) {
     console.warn('⚠️  WARNING: CLAUDE_API_KEY is not configured.');
 }
 
-// Initialize Gemini
+// Initialize Gemini (new @google/genai API)
 let geminiClient = null;
 if (config.GEMINI_API_KEY) {
-    geminiClient = new GoogleGenAI(config.GEMINI_API_KEY);
+    geminiClient = new GoogleGenAI({ apiKey: config.GEMINI_API_KEY });
     console.log(`✅ Gemini initialized: ${config.GEMINI_MODEL}`);
 } else {
     console.warn('⚠️  WARNING: GEMINI_API_KEY is not configured.');
