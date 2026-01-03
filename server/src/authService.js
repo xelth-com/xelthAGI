@@ -1,72 +1,129 @@
-const fs = require('fs');
-const path = require('path');
 const crypto = require('crypto');
+const config = require('./config');
 
-const DB_PATH = path.join(__dirname, '../db/clients.json');
-const DB_DIR = path.dirname(DB_PATH);
-
-// Ensure DB directory exists
-if (!fs.existsSync(DB_DIR)) {
-    fs.mkdirSync(DB_DIR, { recursive: true });
-}
+// Configuration
+const ALGORITHM = 'aes-256-cbc';
+const IV_LENGTH = 16; // For AES
+const SEPARATOR = '_';
 
 class AuthService {
     constructor() {
-        this.clients = this._loadDb();
-    }
-
-    _loadDb() {
-        try {
-            if (fs.existsSync(DB_PATH)) {
-                return JSON.parse(fs.readFileSync(DB_PATH, 'utf8'));
-            }
-        } catch (e) {
-            console.error("Failed to load auth DB:", e);
-        }
-        return { clients: [] };
-    }
-
-    _saveDb() {
-        try {
-            fs.writeFileSync(DB_PATH, JSON.stringify(this.clients, null, 2));
-        } catch (e) {
-            console.error("Failed to save auth DB:", e);
-        }
+        // Load keys and sort by creation date (newest first)
+        this.keys = config.KEY_STORE.sort((a, b) => b.created - a.created);
     }
 
     /**
-     * Generates a new structured token
-     * Format: x1_{timestamp_base36}_{random_hex}
-     * Prefix "x1" denotes Xelth Protocol v1
+     * Get active key pair for given timestamp (or now)
      */
-    createToken(metadata = {}) {
-        const version = "x1";
-        const timestamp = Date.now().toString(36); // Base36 timestamp
-        const random = crypto.randomBytes(16).toString('hex'); // 32 chars
-
-        // Example: x1_lq2w9z_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p
-        const token = `${version}_${timestamp}_${random}`;
-
-        const newClient = {
-            token: token,
-            created_at: new Date().toISOString(),
-            status: 'active',
-            metadata: metadata
-        };
-
-        this.clients.clients.push(newClient);
-        this._saveDb();
-
-        return token;
+    _getKeys(timestamp = Date.now()) {
+        // Find first key that was created BEFORE this time
+        const keySet = this.keys.find(k => k.created <= timestamp);
+        if (!keySet) {
+            throw new Error(`No valid keys found for timestamp ${timestamp}`);
+        }
+        return keySet;
     }
 
+    /**
+     * Create encrypted token (XLT)
+     * @param {Object} payloadData - Data { cid, org, role }
+     * @param {number} expiresInMinutes - Lifetime in minutes
+     */
+    createToken(payloadData, expiresInMinutes = 60 * 24 * 365) { // Default 1 year for dev
+        const now = Date.now();
+        const expiresAt = now + (expiresInMinutes * 60 * 1000);
+
+        // 1. Select keys (active now)
+        const keys = this._getKeys(now);
+
+        // 2. Prepare metadata
+        const genStr = now.toString(36);
+        const expStr = expiresAt.toString(36);
+
+        // 3. Encrypt Payload (AES-256-CBC)
+        const iv = crypto.randomBytes(IV_LENGTH);
+        const cipher = crypto.createCipheriv(ALGORITHM, Buffer.from(keys.encKey), iv);
+
+        const jsonPayload = JSON.stringify(payloadData);
+        let encrypted = cipher.update(jsonPayload, 'utf8', 'hex');
+        encrypted += cipher.final('hex');
+
+        const ivHex = iv.toString('hex');
+
+        // 4. Build body for signature
+        // xlt_GEN_EXP_IV_PAYLOAD
+        const tokenBody = `xlt${SEPARATOR}${genStr}${SEPARATOR}${expStr}${SEPARATOR}${ivHex}${SEPARATOR}${encrypted}`;
+
+        // 5. Sign (HMAC-SHA256)
+        const signature = crypto
+            .createHmac('sha256', keys.sigKey)
+            .update(tokenBody)
+            .digest('hex'); // 64 chars
+
+        // Final token
+        return `${tokenBody}${SEPARATOR}${signature}`;
+    }
+
+    /**
+     * Validate and decrypt token
+     */
     validateToken(token) {
-        // Find client and check if active
-        const client = this.clients.clients.find(c => c.token === token);
-        if (client && client.status === 'active') {
-            return client;
+        if (!token || !token.startsWith('xlt_')) return null;
+
+        const parts = token.split(SEPARATOR);
+        // Expecting: [xlt, gen, exp, iv, payload, sig]
+        if (parts.length !== 6) return null;
+
+        const [prefix, genStr, expStr, ivHex, encrypted, providedSig] = parts;
+
+        // 1. Quick expiration check (public data)
+        const expiresAt = parseInt(expStr, 36);
+        if (Date.now() > expiresAt) {
+            console.log("Token expired");
+            return null;
         }
-        return null;
+
+        // 2. Lookup keys by generation date
+        const genTime = parseInt(genStr, 36);
+        let keys;
+        try {
+            keys = this._getKeys(genTime);
+        } catch (e) {
+            console.error("Key lookup failed:", e.message);
+            return null;
+        }
+
+        // 3. Verify signature
+        const tokenBody = `${prefix}${SEPARATOR}${genStr}${SEPARATOR}${expStr}${SEPARATOR}${ivHex}${SEPARATOR}${encrypted}`;
+        const expectedSig = crypto
+            .createHmac('sha256', keys.sigKey)
+            .update(tokenBody)
+            .digest('hex');
+
+        if (!crypto.timingSafeEqual(Buffer.from(providedSig), Buffer.from(expectedSig))) {
+            console.error("Invalid Token Signature");
+            return null;
+        }
+
+        // 4. Decrypt
+        try {
+            const decipher = crypto.createDecipheriv(ALGORITHM, Buffer.from(keys.encKey), Buffer.from(ivHex, 'hex'));
+            let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+            decrypted += decipher.final('utf8');
+
+            const payload = JSON.parse(decrypted);
+
+            // Return client object in format expected by app
+            return {
+                token: token, // token itself as ID
+                payload: payload, // decrypted data
+                created_at: new Date(genTime).toISOString(),
+                status: 'active'
+            };
+        } catch (e) {
+            console.error("Decryption failed:", e.message);
+            return null;
+        }
     }
 }
 

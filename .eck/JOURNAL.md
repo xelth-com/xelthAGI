@@ -42,6 +42,49 @@ date: 2026-01-03
 ## Recent Changes
 
 ---
+type: feat
+scope: security
+summary: Implement XLT Protocol (Encrypted Tokens)
+date: 2026-01-03
+---
+
+### Security Enhancements
+- **Token Slot Expansion**: Increased client token slot from ~60 to 500 characters to accommodate encrypted tokens
+- **AES-256 Encryption**: Implemented AES-256-CBC encryption for token payload protection
+- **HMAC Signature**: Added HMAC-SHA256 signing for token integrity verification
+- **Key Rotation Support**: Architecture supports key rotation based on token generation timestamp
+- **Payload Structure**: Tokens now include ClientID (8-digit), OrgName, Role, and Host information
+
+### Technical Details
+- **Token Format**: `xlt_GEN_EXP_IV_PAYLOAD_SIG` where:
+  - `xlt` = Protocol prefix (Xelth Token)
+  - `GEN` = Generation timestamp (base36)
+  - `EXP` = Expiration timestamp (base36)
+  - `IV` = Initialization vector (32 hex chars)
+  - `PAYLOAD` = AES-256 encrypted data (variable length)
+  - `SIG` = HMAC-SHA256 signature (64 hex chars)
+- **Token Length**: ~280 characters (well within 500-char limit)
+- **Key Storage**: Configurable via `KEY_STORE` in config.js or `.env`
+
+### Files Modified
+- `client/SupportAgent/Resources/token_slot.txt` - Expanded to 500 chars
+- `client/SupportAgent/Scripts/inject_token_slot.ps1` - Updated placeholder injection
+- `client/SupportAgent/Models/AuthConfig.cs` - Updated placeholder detection
+- `server/src/config.js` - Added KEY_STORE configuration
+- `server/src/authService.js` - Complete rewrite with encryption
+- `server/src/patcher.js` - Updated for 500-char placeholder
+
+### Files Added
+- `server/scripts/generate_dev_token.js` - Dev token generator
+- `server/scripts/test_token_validation.js` - Validation test suite
+
+### Testing
+- ✅ Token generation working
+- ✅ Token validation and decryption working
+- ✅ Invalid token rejection working
+- ✅ Tampered token detection working
+
+---
 type: refactor
 scope: server
 summary: Migrate to @google/genai API and implement Token Hygiene

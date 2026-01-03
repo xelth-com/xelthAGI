@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Injects a token slot placeholder into a compiled .NET executable.
+    Injects a 500-char token slot placeholder into a compiled .NET executable.
 .DESCRIPTION
     This script appends a placeholder string to the executable that can later
     be replaced by the server for token authentication.
@@ -9,12 +9,12 @@
 .PARAMETER OutputPath
     Path for the output executable
 .PARAMETER Placeholder
-    The placeholder string to inject (default: XELTH_TOKEN_SLOT_...)
+    The 500-character placeholder string to inject (matches token_slot.txt)
 #>
 param(
     [string]$InputPath = "",
     [string]$OutputPath = "",
-    [string]$Placeholder = "XELTH_TOKEN_SLOT_00000000000000000000000000000000000000000000000"
+    [string]$Placeholder = "XELTH_TOKEN_SLOT_000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000"
 )
 
 # Get script directory and use default paths if not specified
@@ -26,7 +26,7 @@ if (-not $OutputPath) { $OutputPath = Join-Path $scriptDir "..\publish\SupportAg
 $InputPath = [System.IO.Path]::GetFullPath($InputPath)
 $OutputPath = [System.IO.Path]::GetFullPath($OutputPath)
 
-Write-Host "Injecting token slot into executable..." -ForegroundColor Cyan
+Write-Host "Injecting 500-byte token slot..." -ForegroundColor Cyan
 Write-Host "  Input:  $InputPath"
 Write-Host "  Output: $OutputPath"
 Write-Host "  Placeholder length: $($Placeholder.Length) chars"
@@ -50,5 +50,5 @@ $outputBytes = $exeBytes + $bytes
 
 # Write the output
 [System.IO.File]::WriteAllBytes($OutputPath, $outputBytes)
-Write-Host "[OK] Token slot injected successfully" -ForegroundColor Green
+Write-Host "[OK] Large token slot injected successfully" -ForegroundColor Green
 Write-Host "  Output size: $($outputBytes.Length) bytes"

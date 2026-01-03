@@ -34,7 +34,7 @@ public static class AuthConfig
         string slot = TOKEN_SLOT;
 
         // If the slot still contains the default placeholder, we are in DEV mode
-        if (slot.Contains("XELTH_TOKEN_SLOT_00000"))
+        if (slot.Contains("XELTH_TOKEN_SLOT_"))
         {
             return "DEV_TOKEN_UNPATCHED";
         }

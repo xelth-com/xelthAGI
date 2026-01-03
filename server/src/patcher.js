@@ -1,20 +1,15 @@
 const fs = require('fs');
 const path = require('path');
 
-// CLI mode: Accept exe path and token as arguments
+// CLI mode: Accept exe path and token
 if (require.main === module) {
     const args = process.argv.slice(2);
     if (args.length < 2) {
         console.log("Usage: node patcher.js <exe_path> <token>");
-        console.log("Example: node patcher.js ../client/SupportAgent/publish/SupportAgent.exe x1_test_123");
         process.exit(1);
     }
-
     const exePath = path.resolve(args[0]);
     const token = args[1];
-
-    console.log(`Patching: ${exePath}`);
-    console.log(`Token: ${token}`);
 
     try {
         const patched = patchExe(exePath, token);
@@ -27,13 +22,10 @@ if (require.main === module) {
     process.exit(0);
 }
 
-// Target the compiled binary.
-// In a real scenario, this should be a "clean" template file, not the active one.
-// We assume 'SupportAgent.exe' in public/downloads is the template.
 const SOURCE_EXE = path.join(__dirname, '../public/downloads/SupportAgent.exe');
 
-// MUST match the C# constant exactly
-const PLACEHOLDER_TEXT = "XELTH_TOKEN_SLOT_00000000000000000000000000000000000000000000000";
+// 500 characters placeholder string
+const PLACEHOLDER_TEXT = "XELTH_TOKEN_SLOT_000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000";
 
 function patchExe(exePath, token) {
     if (!fs.existsSync(exePath)) {
@@ -44,18 +36,15 @@ function patchExe(exePath, token) {
         throw new Error(`Token too long! Max ${PLACEHOLDER_TEXT.length}, got ${token.length}`);
     }
 
-    // 1. Read binary
     const binary = fs.readFileSync(exePath);
-
-    // 2. Prepare buffers (UTF-16LE for .NET strings)
     const searchBuf = Buffer.from(PLACEHOLDER_TEXT, 'utf16le');
 
-    // Pad token with spaces to match slot length exactly
+    // Pad with underscores instead of spaces, or keep spaces. Spaces are fine.
     const paddedToken = token.padEnd(PLACEHOLDER_TEXT.length, ' ');
     const replaceBuf = Buffer.from(paddedToken, 'utf16le');
 
-    // 3. Find placeholder - search at the end of the file
-    const searchStart = Math.max(4096, binary.length - 512);
+    // Search from end of file (it's appended)
+    const searchStart = Math.max(4096, binary.length - 2000);
     let offset = -1;
 
     for (let i = searchStart; i <= binary.length - searchBuf.length; i++) {
@@ -73,10 +62,9 @@ function patchExe(exePath, token) {
     }
 
     if (offset === -1) {
-        throw new Error("Placeholder not found in binary! Run inject_token_slot.ps1 during build.");
+        throw new Error("Placeholder not found in binary! Need to rebuild client.");
     }
 
-    // 4. Create new buffer and patch
     const patched = Buffer.alloc(binary.length);
     binary.copy(patched);
     replaceBuf.copy(patched, offset);
