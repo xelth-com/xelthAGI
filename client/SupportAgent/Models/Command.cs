@@ -29,4 +29,5 @@ public class ServerResponse
     public bool Success { get; set; }
     public string Error { get; set; } = string.Empty;
     public bool TaskCompleted { get; set; }
+    public string Reasoning { get; set; } = string.Empty;
 }

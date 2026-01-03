@@ -164,14 +164,16 @@ app.post('/DECIDE', async (req, res) => {
             Message: decision.message || ""
         };
 
-        console.log(`🤖 Decision: ${decision.reasoning || 'No reasoning provided'}`);
+        const reasoning = decision.reasoning || "No reasoning provided";
+        console.log(`🤖 Decision: ${reasoning}`);
         console.log(`📤 Command: ${command.Action} on ${command.ElementId}`);
 
         // --- SESSION LOGGING (FLIGHT RECORDER) ---
         try {
             const shortId = request.ClientId.substring(0, 6);
-            // Create a session ID based on date/hour to group interactions
-            const dateStr = new Date().toISOString().slice(0, 13).replace(/[-T:]/g, ''); // YYYYMMDDHH
+            // Fix logging: Use full timestamp to prevent overwrites and create distinct session files
+            // Format: YYYYMMDD-HHmm
+            const dateStr = new Date().toISOString().slice(0, 16).replace(/[-T:]/g, '').replace(' ', '-');
             const logFileName = `session_${shortId}_${dateStr}.json`;
             const logPath = path.join(logsDir, logFileName);
             const logUrl = `https://xelth.com/AGI/logs/${logFileName}`;
@@ -209,7 +211,8 @@ app.post('/DECIDE', async (req, res) => {
         return res.json({
             Command: command,
             Success: true,
-            TaskCompleted: false
+            TaskCompleted: false,
+            Reasoning: reasoning
         });
 
     } catch (e) {

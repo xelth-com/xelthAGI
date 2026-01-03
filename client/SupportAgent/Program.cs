@@ -169,6 +169,13 @@ class Program
                 Console.WriteLine("  → Asking server for next action...");
                 var response = await serverService.GetNextCommand(uiState, task, _actionHistory);
 
+                if (response != null && !string.IsNullOrEmpty(response.Reasoning))
+                {
+                    Console.ForegroundColor = ConsoleColor.Cyan;
+                    Console.WriteLine($"\n  🧠 THOUGHT: {response.Reasoning}\n");
+                    Console.ResetColor();
+                }
+
                 if (response == null || !response.Success)
                 {
                     Console.WriteLine("  ❌ Server error or no response");
