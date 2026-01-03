@@ -1,0 +1,272 @@
+# System Architecture
+
+## Overview
+XelthAGI is a desktop automation framework that combines AI-driven decision-making with robust UI and OS automation capabilities.
+
+## Architecture Pattern
+**Client-Server with AI Brain**
+
+```
+┌─────────────────────────────────────────┐
+│         Server (Node.js/Express)        │
+│  ┌───────────────────────────────────┐  │
+│  │   LLM Integration (Gemini/Claude) │  │
+│  │   - Decision making               │  │
+│  │   - Loop detection                │  │
+│  │   - Context management            │  │
+│  └───────────────────────────────────┘  │
+│  ┌───────────────────────────────────┐  │
+│  │   Server-Side Operations          │  │
+│  │   - net_search (web search)       │  │
+│  │   - Playbook management           │  │
+│  └───────────────────────────────────┘  │
+└──────────────┬──────────────────────────┘
+               │ HTTPS
+               │ JSON Commands
+               ▼
+┌─────────────────────────────────────────┐
+│      Client (C# .NET 8 / FlaUI)         │
+│  ┌───────────────────────────────────┐  │
+│  │   UIAutomationService (FlaUI)     │  │
+│  │   - Window matching & switching   │  │
+│  │   - Element interaction           │  │
+│  │   - Proactive focus management    │  │
+│  │   - State tracking                │  │
+│  └───────────────────────────────────┘  │
+│  ┌───────────────────────────────────┐  │
+│  │   SystemService (OS Operations)   │  │
+│  │   - File management               │  │
+│  │   - Process control               │  │
+│  │   - Registry operations           │  │
+│  │   - Network diagnostics           │  │
+│  └───────────────────────────────────┘  │
+│  ┌───────────────────────────────────┐  │
+│  │   Safety & Human Interaction      │  │
+│  │   - High-risk action confirmation │  │
+│  │   - ask_user dialogs              │  │
+│  │   - Clipboard operations          │  │
+│  └───────────────────────────────────┘  │
+└─────────────────────────────────────────┘
+```
+
+## Core Components
+
+### 1. Server (Node.js/Express)
+**Location:** `server/src/`
+
+**Responsibilities:**
+- **LLM Integration** (`llmService.js`): Communicates with Gemini/Claude APIs
+- **Decision Making**: Processes UI state and determines next action
+- **Loop Detection**: Server-side analysis of command history to detect infinite loops
+- **Context Injection**: Injects warnings and hints into LLM prompts
+- **Web Search**: Performs `net_search` operations server-side for instant context
+- **Playbook Storage**: Saves successful workflows as reusable playbooks
+
+**Key Files:**
+- `server.js`: Express server, endpoints, health checks
+- `llmService.js`: Prompt construction, LLM communication, loop detection
+
+### 2. Client (C# .NET 8)
+**Location:** `client/SupportAgent/`
+
+**Responsibilities:**
+- **UI Automation**: FlaUI-based window and element manipulation
+- **OS Operations**: Direct filesystem, process, registry, network operations
+- **State Tracking**: Deep state detection (Title + Element Count + Content Hash)
+- **Safety Rails**: User confirmation for destructive actions
+- **Human Interaction**: GUI dialogs for user input (CAPTCHA, passwords)
+
+**Key Files:**
+- `Program.cs`: Main loop, command execution, state tracking, safety rails
+- `Services/UIAutomationService.cs`: FlaUI automation, window management, focus control
+- `Services/SystemService.cs`: OS operations (file, process, registry, network)
+- `Services/ServerCommunicationService.cs`: HTTP client for server communication
+- `Models/`: Command, UIState, UIElement data structures
+
+## Key Design Patterns
+
+### 1. Proactive Focus Management
+**Problem:** Windows can lose focus during automation, causing actions to fail.
+
+**Solution:**
+```csharp
+// BEFORE each action requiring focus:
+SetWindowPos(HWND_TOPMOST, ...);  // Lock window on top
+SetForegroundWindow(...);          // Set foreground
+
+// AFTER task completion (Dispose):
+SetWindowPos(HWND_NOTOPMOST, ...); // Release lock
+```
+
+**Benefits:**
+- Prevents focus loss during typing/clicking
+- No admin rights required
+- Automatic cleanup prevents sticky windows
+
+### 2. Deep State Detection
+**Problem:** Simple title-based state detection misses content changes.
+
+**Solution:**
+```csharp
+// Track three dimensions:
+var titleHash = window.Name.GetHashCode();
+var elementCount = elements.Count;
+var contentHash = GetContentHash(elements); // All .Value fields
+
+// State changed if ANY dimension changes
+var stateChanged = (titleHash != prevTitle) ||
+                   (elementCount != prevCount) ||
+                   (contentHash != prevContent);
+```
+
+**Benefits:**
+- Detects content changes even when title unchanged
+- Prevents false "no change" detection
+- Enables accurate loop detection
+
+### 3. Server-Side Loop Detection
+**Problem:** Infinite click loops waste tokens and time.
+
+**Solution:**
+```javascript
+// Analyze command history for repeated patterns
+const recentCommands = history.slice(-6);
+const actionSequence = recentCommands.map(cmd =>
+    `${cmd.action}:${cmd.elementId || cmd.x + ',' + cmd.y}`
+);
+
+// Detect 3+ identical consecutive actions
+if (detectRepeatingPattern(actionSequence, 3)) {
+    // Inject critical warning into prompt
+    injectWarning("INFINITE LOOP DETECTED!");
+}
+```
+
+**Benefits:**
+- Prevents token waste
+- Reduces test time
+- Self-healing behavior
+
+### 4. Multi-Tier Window Matching
+**Problem:** Localization breaks title-based matching (Calculator vs Rechner).
+
+**Solution:**
+```csharp
+// Priority tiers:
+1. Exact process name match          // Highest priority
+2. Partial process name match         // "calc" → "CalculatorApp"
+3. Reverse partial match              // "calculator" contains "calc"
+4. Special UWP app handling           // ApplicationFrameHost
+5. Title exact/starts-with match
+6. Title contains match (fallback)    // Lowest priority
+
+// Special handling for common apps:
+if (isCalculatorSearch && isCalculatorWindow) {
+    // Handles: Rechner, Calculator, Taschenrechner, etc.
+}
+```
+
+**Benefits:**
+- Works across all OS localizations
+- Process-first prevents false matches
+- Covers edge cases (UWP apps)
+
+### 5. Safety Rails with Bypass
+**Problem:** Destructive actions need confirmation, but automation needs speed.
+
+**Solution:**
+```csharp
+// High-risk actions:
+var highRiskActions = new HashSet<string> {
+    "os_delete", "os_kill", "reg_write",
+    "os_run", "write_clipboard"
+};
+
+// Check before execution:
+if (highRiskActions.Contains(action) && !unsafeMode) {
+    // Red warning + Y/n prompt
+    var confirmed = AskUserConfirmation(action, target);
+    if (!confirmed) {
+        return "FAILED: User denied ... - Safety check";
+    }
+}
+```
+
+**Benefits:**
+- Prevents accidental data loss
+- `--unsafe` flag for automated testing
+- Logged denials inform the agent
+
+## Data Flow
+
+### Request Flow
+```
+1. User → Client: CLI args (--app, --task, --server)
+2. Client → Server: Initial state (POST /state)
+3. Server → LLM: State + Prompt
+4. LLM → Server: Next command (JSON)
+5. Server → Client: Command response
+6. Client: Execute command
+7. Client → Server: Updated state
+8. Repeat steps 3-7 until task complete or max steps
+```
+
+### State Structure
+```json
+{
+  "title": "Window Title",
+  "elements": [
+    {
+      "id": "uuid-v4",
+      "name": "Element Name",
+      "type": "Button|Edit|etc",
+      "value": "current text content",
+      "bounds": { "x": 10, "y": 20, "width": 100, "height": 30 }
+    }
+  ],
+  "history": [
+    { "action": "type", "elementId": "...", "text": "...", "result": "OK" }
+  ],
+  "lastOsOperationResult": "SUCCESS: ..." // For OS commands
+}
+```
+
+## Technology Stack
+
+### Server
+- **Runtime**: Node.js 18+
+- **Framework**: Express
+- **LLM SDKs**: @google/genai (v1.34+), @anthropic-ai/sdk
+- **Deployment**: PM2 process manager on Ubuntu
+- **Web Server**: NGINX reverse proxy
+
+### Client
+- **Language**: C# 11
+- **Framework**: .NET 8 (Windows-only)
+- **UI Automation**: FlaUI 4.x (UIA3 backend)
+- **Clipboard**: TextCopy library (STA thread safe)
+- **HTTP Client**: System.Net.Http
+
+## Security Considerations
+
+1. **No Credentials in Client**: API keys stored server-side only
+2. **HTTPS Only**: Client-server communication encrypted
+3. **Safety Rails**: Destructive actions require confirmation
+4. **Admin Checks**: Registry HKLM writes require elevation
+5. **User Visibility**: All actions logged to console
+
+## Performance Optimizations
+
+1. **Element Caching**: Reuse element references within same scan
+2. **Economy Mode**: Screenshots only on-demand (not every step)
+3. **Server-Side Search**: `net_search` runs on server to avoid client overhead
+4. **Loop Detection**: Prevents wasted LLM tokens
+5. **Max Steps Limit**: 20 steps (reduced from 50) to prevent runaway costs
+
+## Extensibility Points
+
+1. **New Commands**: Add to `ExecuteCommand` switch in UIAutomationService
+2. **New OS Operations**: Extend SystemService class
+3. **Custom Playbooks**: JSON templates for reusable workflows
+4. **LLM Providers**: Add new providers in llmService.js
+5. **Safety Policies**: Modify highRiskActions HashSet
