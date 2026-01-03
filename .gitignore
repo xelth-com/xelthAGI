@@ -28,10 +28,12 @@ obj/
 *.nupkg
 *.dll
 *.pdb
+*.exe
 
 # Build outputs
 dist/
 build/
+client/SupportAgent/publish/
 
 # Server Data
 server/db/
