@@ -4,14 +4,23 @@ const fs = require('fs');
 const fsPromises = require('fs').promises;
 const path = require('path');
 
+// Constants
+const DEFAULTS = {
+    GEMINI_PRIMARY: 'gemini-3-flash-preview',
+    GEMINI_FALLBACK: 'gemini-2.5-flash',
+    MAX_ELEMENTS: 100,
+    MAX_TOKENS: 1024,
+    GEMINI_RETRY_ATTEMPTS: 2
+};
+
 class LLMService {
     constructor() {
         this.provider = config.LLM_PROVIDER.toLowerCase();
         this.claude = claudeClient;
         this.gemini = geminiClient;
 
-        this.geminiPrimaryModel = config.GEMINI_MODEL || 'gemini-3-flash-preview';
-        this.geminiFallbackModel = 'gemini-2.5-flash';
+        this.geminiPrimaryModel = config.GEMINI_MODEL || DEFAULTS.GEMINI_PRIMARY;
+        this.geminiFallbackModel = DEFAULTS.GEMINI_FALLBACK;
 
         if (this.provider === 'claude' && !this.claude) {
             throw new Error('Claude provider selected but CLAUDE_API_KEY is not configured');
@@ -21,9 +30,15 @@ class LLMService {
         }
     }
 
+    // Security: Sanitize playbook names to prevent path traversal
+    _sanitizePlaybookName(name) {
+        return name.replace(/[^a-zA-Z0-9_-]/g, '').substring(0, 64);
+    }
+
     async _loadPlaybook(playbookName) {
         try {
-            const playbookPath = path.join(__dirname, '..', 'playbooks', `${playbookName}.md`);
+            const safeName = this._sanitizePlaybookName(playbookName);
+            const playbookPath = path.join(__dirname, '..', 'playbooks', `${safeName}.md`);
             const content = await fsPromises.readFile(playbookPath, 'utf8');
             return content;
         } catch (error) {
@@ -34,10 +49,11 @@ class LLMService {
 
     async _savePlaybook(filename, content) {
         try {
-            if (!filename.endsWith('.md')) filename = `${filename}.md`;
-            const playbookPath = path.join(__dirname, '..', 'playbooks', filename);
+            const safeName = this._sanitizePlaybookName(filename);
+            if (!safeName) return 'ERROR: Invalid playbook name';
+            const playbookPath = path.join(__dirname, '..', 'playbooks', `${safeName}.md`);
             await fsPromises.writeFile(playbookPath, content, 'utf8');
-            return `✅ Playbook saved successfully: ${filename}`;
+            return `✅ Playbook saved successfully: ${safeName}.md`;
         } catch (error) {
             return `ERROR: Failed to save playbook - ${error.message}`;
         }
@@ -80,12 +96,9 @@ class LLMService {
         const screenshotBase64 = uiState.Screenshot || null;
         const prompt = this._buildPrompt(uiState, effectiveTask, history, screenshotBase64);
 
-        // DEBUG: Save the exact prompt we are sending to LLM
-        // This allows the user to see "What exactly are we sending?"
-        try {
-            const debugPath = path.join(__dirname, '..', 'public', 'LOGS', 'last_prompt.txt');
-            fs.writeFileSync(debugPath, prompt);
-        } catch (e) { /* Ignore log write errors */ }
+        // DEBUG: Save the exact prompt we are sending to LLM (async, non-blocking)
+        const debugPath = path.join(__dirname, '..', 'public', 'LOGS', 'last_prompt.txt');
+        fsPromises.writeFile(debugPath, prompt).catch(() => {})
 
         let response;
         if (this.provider === 'claude') {
@@ -176,7 +189,7 @@ ${elementsSummary}
         if (!elements || elements.length === 0) return '  (No UI elements found)';
 
         let summaryLines = [];
-        const limit = 100; // Allow more elements since we are filtering garbage
+        const limit = DEFAULTS.MAX_ELEMENTS;
 
         let validCount = 0;
         for (const elem of elements) {
@@ -224,7 +237,7 @@ ${elementsSummary}
 
             const response = await this.claude.messages.create({
                 model: config.CLAUDE_MODEL,
-                max_tokens: 1024,
+                max_tokens: DEFAULTS.MAX_TOKENS,
                 temperature: config.TEMPERATURE,
                 messages: [{ role: 'user', content }]
             });
@@ -235,31 +248,39 @@ ${elementsSummary}
     }
 
     async _askGemini(prompt, screenshotBase64 = null) {
-        try {
-            // New @google/genai format: contents is array of Part objects
-            const contents = [{ text: prompt }];
-            if (screenshotBase64) {
-                contents.push({ inlineData: { mimeType: 'image/jpeg', data: screenshotBase64 } });
-            }
+        const contents = [{ text: prompt }];
+        if (screenshotBase64) {
+            contents.push({ inlineData: { mimeType: 'image/jpeg', data: screenshotBase64 } });
+        }
 
-            const result = await this.gemini.models.generateContent({
-                model: this.geminiPrimaryModel,
-                contents: contents,
-                config: { responseMimeType: "application/json" }
-            });
-            return JSON.parse(result.text);
-        } catch (e) {
-            console.error("Gemini Error:", e.message);
-            // Fallback (text-only for safety)
+        // Retry loop for primary model
+        for (let attempt = 0; attempt < DEFAULTS.GEMINI_RETRY_ATTEMPTS; attempt++) {
             try {
-                const fallback = await this.gemini.models.generateContent({
-                    model: this.geminiFallbackModel,
-                    contents: [{ text: prompt }]
+                const result = await this.gemini.models.generateContent({
+                    model: this.geminiPrimaryModel,
+                    contents: contents,
+                    config: { responseMimeType: "application/json" }
                 });
-                return this._parseJsonResponse(fallback.text);
-            } catch (err) {
-                return { error: err.message, task_completed: false };
+                return JSON.parse(result.text);
+            } catch (e) {
+                console.error(`Gemini Error (attempt ${attempt + 1}):`, e.message);
+                if (attempt < DEFAULTS.GEMINI_RETRY_ATTEMPTS - 1) {
+                    await new Promise(r => setTimeout(r, 1000 * (attempt + 1))); // Exponential backoff
+                    continue;
+                }
             }
+        }
+
+        // Fallback to secondary model (text-only for safety)
+        try {
+            console.log(`⚠️ Falling back to ${this.geminiFallbackModel}`);
+            const fallback = await this.gemini.models.generateContent({
+                model: this.geminiFallbackModel,
+                contents: [{ text: prompt }]
+            });
+            return this._parseJsonResponse(fallback.text);
+        } catch (err) {
+            return { error: err.message, task_completed: false };
         }
     }
 
@@ -269,7 +290,7 @@ ${elementsSummary}
             return JSON.parse(text);
         } catch (e) {
             console.error("JSON Parse Error on:", text.substring(0, 100));
-            throw new Error("Invalid JSON response from LLM");
+            return { error: "Invalid JSON response from LLM", task_completed: false };
         }
     }
 }
