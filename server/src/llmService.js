@@ -78,6 +78,9 @@ class LLMService {
         }
 
         const screenshotBase64 = uiState.Screenshot || null;
+        if (screenshotBase64) {
+            console.log(`🎯 LLM Service: Screenshot passed to prompt (${Math.round(screenshotBase64.length/1024)}KB)`);
+        }
         const prompt = this._buildPrompt(uiState, effectiveTask, history, screenshotBase64);
 
         // DEBUG: Save the exact prompt we are sending to LLM
