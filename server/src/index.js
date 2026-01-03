@@ -167,7 +167,8 @@ app.post('/DECIDE', async (req, res) => {
         const uiStateDict = {
             WindowTitle: request.State.WindowTitle,
             ProcessName: request.State.ProcessName,
-            Elements: request.State.Elements
+            Elements: request.State.Elements,
+            Screenshot: request.State.Screenshot || null
         };
 
         const decision = await llmService.decideNextAction(
