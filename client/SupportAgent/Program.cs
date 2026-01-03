@@ -159,9 +159,13 @@ class Program
                     e.Type.Contains("Document", StringComparison.OrdinalIgnoreCase));
                 previousContentHash = string.Join("|", textElements.Select(e => e.Value ?? ""));
 
+                // Always capture low-quality Shadow Screenshot for debugging/logging
+                // This allows us to see what happened even if the agent didn't ask for vision
+                uiState.DebugScreenshot = automationService.CaptureFullDesktop(30);
+
                 if (nextScreenshotQuality > 0)
                 {
-                    Console.WriteLine($"  📷 Capturing screenshot (Quality: {nextScreenshotQuality}%)...");
+                    Console.WriteLine($"  📷 Capturing AI Vision screenshot (Quality: {nextScreenshotQuality}%)...");
                     uiState.Screenshot = automationService.CaptureScreen(nextScreenshotQuality);
                     nextScreenshotQuality = 0;
                 }

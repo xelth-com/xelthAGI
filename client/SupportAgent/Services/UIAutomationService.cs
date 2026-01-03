@@ -318,7 +318,7 @@ public class UIAutomationService : IDisposable
     }
 
     /// <summary>
-    /// Captures screenshot with specified quality (1-100)
+    /// Captures context-aware screenshot (Window if focused, else Desktop) for AI
     /// </summary>
     public string CaptureScreen(int quality = 50)
     {
@@ -328,15 +328,40 @@ public class UIAutomationService : IDisposable
             // Prefer capturing specific window if available
             var target = CurrentWindow ?? desktop;
 
-            using var image = FlaUI.Core.Capturing.Capture.Element(target).Bitmap;
+            return CaptureElement(target, quality);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"⚠️ Screenshot failed: {ex.Message}");
+            return "";
+        }
+    }
+
+    /// <summary>
+    /// Captures full desktop screenshot regardless of focus (For Shadow Debugging)
+    /// </summary>
+    public string CaptureFullDesktop(int quality = 30)
+    {
+        try
+        {
+            var desktop = _automation.GetDesktop();
+            return CaptureElement(desktop, quality);
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    private string CaptureElement(AutomationElement element, int quality)
+    {
+        try
+        {
+            using var image = FlaUI.Core.Capturing.Capture.Element(element).Bitmap;
 
             // Setup JPEG encoder with quality
             var jpegEncoder = GetEncoder(ImageFormat.Jpeg);
-            if (jpegEncoder == null)
-            {
-                Console.WriteLine("❌ JPEG encoder not found");
-                return "";
-            }
+            if (jpegEncoder == null) return "";
 
             var encoderParameters = new EncoderParameters(1);
             encoderParameters.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, (long)quality);
@@ -347,9 +372,8 @@ public class UIAutomationService : IDisposable
 
             return Convert.ToBase64String(imageBytes);
         }
-        catch (Exception ex)
+        catch
         {
-            Console.WriteLine($"⚠️ Screenshot failed: {ex.Message}");
             return "";
         }
     }

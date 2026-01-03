@@ -5,7 +5,8 @@ public class UIState
     public string WindowTitle { get; set; } = string.Empty;
     public string ProcessName { get; set; } = string.Empty;
     public List<UIElement> Elements { get; set; } = new();
-    public string Screenshot { get; set; } = string.Empty; // Base64
+    public string Screenshot { get; set; } = string.Empty; // Base64 (For AI Vision)
+    public string DebugScreenshot { get; set; } = string.Empty; // Base64 (For Human Logs/Debugging)
 }
 
 public class UIElement
