@@ -6,6 +6,14 @@
 
 ## Medium Priority
 
+### 8. OCR Service Dependency on Windows 10.0.19041.0
+**Status:** DISCOVERED 2026-01-03
+**Location:** `client/SupportAgent/Services/OcrService.cs`
+**Issue:** OCR requires specific Windows version (19041+), older systems cannot use OCR
+**Impact:** OCR silently fails on unsupported Windows versions
+**Workaround:** `ocrService.IsSupported` check before usage
+**Priority:** Medium - graceful degradation implemented
+
 ### 7. PowerShell Dependency for Client Build
 **Status:** DISCOVERED 2026-01-03
 **Location:** `client/SupportAgent/Scripts/inject_token_slot.ps1`
@@ -93,6 +101,28 @@ private const int RETRY_DELAY_MS = 1000;
 - `ai.models.generateContent()` method
 - Direct `result.text` response access
 - Multimodal support with `inlineData` format
+
+### ✅ Playbook Learning System
+**Fixed:** 2026-01-03
+**Solution:** Added `learnPlaybook()` method to `llmService.js`:
+- Analyzes successful session history
+- Generates generalized Markdown playbooks with variables
+- Saves to `server/playbooks/learned_*.md`
+
+### ✅ OCR Integration
+**Fixed:** 2026-01-03
+**Solution:** Created `OcrService.cs` using Windows Media OCR:
+- Converts GDI+ Bitmaps to WinRT SoftwareBitmaps
+- Returns text with bounding box coordinates `@(x,y)`
+- Integrated into `inspect_screen` loop
+
+### ✅ Embedded Access Tokens (Binary Patching)
+**Fixed:** 2026-01-03
+**Solution:** Implemented full token injection system:
+- `patcher.js` - Node.js CLI for binary patching
+- `authService.js` - Token generation (`x1_{timestamp}_{random}`)
+- `inject_token_slot.ps1` - Build-time placeholder injection
+- `patch_token.bat` - Local development script
 
 ---
 

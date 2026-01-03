@@ -10,6 +10,8 @@
 - **Human Interaction**: Request user assistance for CAPTCHA, passwords, physical actions
 - **Safety Rails**: Confirmation prompts for destructive actions
 - **AI Intelligence**: LLM-driven decision making with loop detection
+- **Vision & OCR**: Windows Media OCR for reading non-accessible UIs (Citrix/RDP)
+- **Self-Learning**: Automated playbook generation from successful sessions
 
 ## Architecture
 **Client-Server with AI Brain**
@@ -201,7 +203,7 @@ curl https://xelth.com/AGI/HEALTH
 - **[SERVER_ACCESS.md](.eck/SERVER_ACCESS.md)**: SSH credentials, deployment procedures
 - **[NEXT_TASK.md](NEXT_TASK.md)**: Session handoff, recommendations
 
-## Security (v1.3+)
+## Security & Binary Patching (v1.3)
 
 XelthAGI uses **Embedded Access Tokens** for client authentication:
 

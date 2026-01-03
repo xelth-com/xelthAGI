@@ -1,5 +1,44 @@
 # Development Journal
 
+## v1.3 Release - Security, OCR, and Learning (2026-01-03)
+
+---
+type: release
+scope: system
+summary: Release v1.3 - Security, OCR, and Playbook Learning
+date: 2026-01-03
+---
+
+### Security & Deployment
+- **Embedded Access Tokens**: Binary patching system for secure, config-less client distribution
+- **One-Click Download**: Dashboard button generates unique, secured EXE files on the fly
+- **Token Hygiene**: Server validates `x1_...` tokens via Bearer auth
+
+### Vision & Perception
+- **Windows Media OCR**: Integrated native Windows 10/11 OCR engine into C# client
+- **Visual Reading**: `inspect_screen` command now returns text + coordinates for "blind" apps (Citrix/RDP)
+
+### Intelligence & Learning
+- **Auto-Learning**: Server analyzes successful session history
+- **Playbook Generator**: Automatically creates Markdown SOPs from execution logs (`learned_task.md`)
+- **Download Button**: Added to Mission Control dashboard
+
+### Files Added
+- `server/src/authService.js` - Token generation and validation
+- `server/src/patcher.js` - Binary patching for token injection
+- `client/Services/OcrService.cs` - Windows Media OCR integration
+- `client/Scripts/inject_token_slot.ps1` - Build-time token slot injection
+- `client/patch_token.bat` - Local token patching script
+
+### Files Modified
+- `server/src/index.js` - Download endpoint, auth middleware, learning trigger
+- `server/src/llmService.js` - Playbook generation (`learnedPlaybook` method)
+- `server/public/index.html` - Download button in header
+- `client/Program.cs` - OCR integration in main loop
+- `NEXT_TASK.md` - Updated to v1.3
+
+---
+
 ## Recent Changes
 
 ---
