@@ -236,22 +236,25 @@ ${elementsSummary}
 
     async _askGemini(prompt, screenshotBase64 = null) {
         try {
-            const parts = [{ text: prompt }];
-            if (screenshotBase64) parts.push({ inlineData: { mimeType: 'image/jpeg', data: screenshotBase64 } });
+            // New @google/genai format: contents is array of Part objects
+            const contents = [{ text: prompt }];
+            if (screenshotBase64) {
+                contents.push({ inlineData: { mimeType: 'image/jpeg', data: screenshotBase64 } });
+            }
 
             const result = await this.gemini.models.generateContent({
                 model: this.geminiPrimaryModel,
-                contents: [{ role: 'user', parts }],
+                contents: contents,
                 config: { responseMimeType: "application/json" }
             });
             return JSON.parse(result.text);
         } catch (e) {
             console.error("Gemini Error:", e.message);
-            // Fallback
+            // Fallback (text-only for safety)
             try {
                 const fallback = await this.gemini.models.generateContent({
                     model: this.geminiFallbackModel,
-                    contents: [{ role: 'user', parts: [{ text: prompt }] }] // No image in fallback to be safe
+                    contents: [{ text: prompt }]
                 });
                 return this._parseJsonResponse(fallback.text);
             } catch (err) {
