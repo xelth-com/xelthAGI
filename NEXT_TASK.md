@@ -5,7 +5,8 @@
 ### 🛡️ Security & Deployment (v1.3)
 - ✅ **Embedded Access Tokens**: Binary patching system for secure, config-less client distribution.
 - ✅ **One-Click Download**: Dashboard button generates unique, secured EXE files on the fly.
-- ✅ **Token Hygiene**: Server validates `x1_...` tokens via Bearer auth.
+- ✅ **Token Hygiene**: Server validates `xlt_...` tokens via Bearer auth.
+- ✅ **XLT Protocol**: Full AES-256-CBC encryption + HMAC-SHA256 signature for stateless auth.
 
 ### 👁️ Vision & Perception (v1.3)
 - ✅ **Windows Media OCR**: Integrated native Windows 10/11 OCR engine into C# client.
