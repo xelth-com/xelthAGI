@@ -39,10 +39,21 @@ function cleanupDirectory(directory, maxAgeMs) {
             const filePath = path.join(directory, file);
             fs.stat(filePath, (err, stats) => {
                 if (err) return;
-                if (now - stats.mtimeMs > maxAgeMs) {
-                    fs.unlink(filePath, (err) => {
-                        if (!err) console.log(`🧹 GC: Deleted old file ${file}`);
-                    });
+
+                const isOld = (now - stats.mtimeMs > maxAgeMs);
+
+                if (isOld) {
+                    if (stats.isDirectory()) {
+                        // Recursive delete for screenshot folders
+                        fs.rm(filePath, { recursive: true, force: true }, (err) => {
+                            if (!err) console.log(`🧹 GC: Deleted old folder ${file}`);
+                        });
+                    } else {
+                        // Delete file
+                        fs.unlink(filePath, (err) => {
+                            if (!err) console.log(`🧹 GC: Deleted old file ${file}`);
+                        });
+                    }
                 }
             });
         });
@@ -172,17 +183,36 @@ app.post('/DECIDE', async (req, res) => {
             reasoning: decision.reasoning || ''
         };
 
+        // Generate consistent Session Name for grouping logs and screenshots
+        const shortId = request.ClientId.substring(0, 6);
+        const safeTaskName = request.Task
+            .replace(/[^a-zA-Z0-9]/g, '_')
+            .replace(/_+/g, '_')
+            .substring(0, 50);
+        const dateStr = new Date().toISOString().slice(0, 10);
+        const sessionName = `${safeTaskName}_${shortId}_${dateStr}`;
+
         // Handle Shadow Debug Screenshot (Only in DEBUG mode)
         let debugScreenshotUrl = null;
         if (config.DEBUG && request.State.DebugScreenshot) {
             try {
-                const shortId = request.ClientId.substring(0, 6);
+                // Create Session Subfolder in SCREENSHOTS
+                const sessionScreenshotDir = path.join(screenshotsDir, sessionName);
+                if (!fs.existsSync(sessionScreenshotDir)) {
+                    fs.mkdirSync(sessionScreenshotDir, { recursive: true });
+                }
+
+                // Name image by Step Number (e.g., step_005.jpg)
+                const currentStep = (request.History ? request.History.length : 0) + 1;
+                const stepStr = String(currentStep).padStart(3, '0');
+                const imgName = `step_${stepStr}.jpg`;
+
+                const imgPath = path.join(sessionScreenshotDir, imgName);
                 const imgBuffer = Buffer.from(request.State.DebugScreenshot, 'base64');
-                const imgName = `debug_${shortId}_${Date.now()}.jpg`;
-                const imgPath = path.join(screenshotsDir, imgName);
                 fs.writeFileSync(imgPath, imgBuffer);
-                // Use UPPERCASE path for consistency
-                debugScreenshotUrl = `https://xelth.com/AGI/SCREENSHOTS/${imgName}`;
+
+                // URL structure: /AGI/SCREENSHOTS/{SessionName}/{imgName}
+                debugScreenshotUrl = `https://xelth.com/AGI/SCREENSHOTS/${sessionName}/${imgName}`;
                 console.log(`📸 Shadow Debug Screenshot saved: ${debugScreenshotUrl}`);
             } catch (err) {
                 console.error("Failed to save debug screenshot:", err.message);
@@ -226,20 +256,9 @@ app.post('/DECIDE', async (req, res) => {
 
         // --- SESSION LOGGING (FLIGHT RECORDER) ---
         try {
-            const shortId = request.ClientId.substring(0, 6);
-
-            // Generate filename based on TASK name to keep logs grouped logically
-            // Example: Type_Testing_reasoning_feature_be8236_2026-01-03.json
-            const safeTaskName = request.Task
-                .replace(/[^a-zA-Z0-9]/g, '_') // Replace non-alphanumeric with _
-                .replace(/_+/g, '_')           // Merge multiple underscores
-                .substring(0, 50);             // Limit length
-
-            const dateStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-            const logFileName = `${safeTaskName}_${shortId}_${dateStr}.json`;
-
+            // Reuse sessionName generated above for consistency
+            const logFileName = `${sessionName}.json`;
             const logPath = path.join(logsDir, logFileName);
-            // Update URL to use uppercase LOGS
             const logUrl = `https://xelth.com/AGI/LOGS/${logFileName}`;
 
             const logEntry = {
