@@ -20,6 +20,14 @@ const statLastSeen = document.getElementById('statLastSeen');
 const historyList = document.getElementById('historyList');
 const logsList = document.getElementById('logsList');
 const debugToggle = document.getElementById('debugToggle');
+const downloadBtn = document.getElementById('downloadBtn');
+
+// Download Client Handler
+if (downloadBtn) {
+    downloadBtn.addEventListener('click', () => {
+        window.location.href = '/DOWNLOAD/CLIENT';
+    });
+}
 
 // Toggle Debug Mode (UPPERCASE API)
 debugToggle.addEventListener('change', async (e) => {

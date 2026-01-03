@@ -293,6 +293,75 @@ ${elementsSummary}
             return { error: "Invalid JSON response from LLM", task_completed: false };
         }
     }
+
+    // --- NEW: AUTOMATED LEARNING ---
+    // Analyzes successful session history and creates a reusable Markdown playbook
+    async learnPlaybook(task, history) {
+        if (!history || history.length < 3) {
+            console.log("⚠️ History too short to learn from.");
+            return;
+        }
+
+        console.log(`🎓 Learning from session: "${task}"...`);
+
+        const prompt = `You are a Process Analyst AI.
+Analyze the following successful execution history and convert it into a generalized Markdown Playbook.
+
+**ORIGINAL TASK**: ${task}
+
+**EXECUTION HISTORY**:
+${history.map((h, i) => `${i + 1}. ${h}`).join('\n')}
+
+**INSTRUCTIONS**:
+1. Identify the high-level steps taken.
+2. Abstract specific values (like filenames, URLs, text) into Variables.
+3. Output ONLY valid Markdown content.
+
+**OUTPUT FORMAT (Markdown)**:
+# Playbook: [Descriptive Title]
+
+## Goal
+[Brief description]
+
+## Variables
+- \`VarName\`: "DetectedValue"
+
+## Steps
+1. **[Step Name]**
+   - Action: [Action Description]
+   - Target: {\`VarName\`} (if applicable)
+   - Note: [Any important details]
+
+**IMPORTANT**: Return ONLY the Markdown content. Do not include "Here is the playbook" or code blocks.`;
+
+        let playbookContent = "";
+        try {
+            if (this.provider === 'claude') {
+                const response = await this.claude.messages.create({
+                    model: config.CLAUDE_MODEL,
+                    max_tokens: 2048,
+                    messages: [{ role: 'user', content: prompt }]
+                });
+                playbookContent = response.content[0].text;
+            } else {
+                const result = await this.gemini.models.generateContent({
+                    model: this.geminiPrimaryModel,
+                    contents: [{ text: prompt }]
+                });
+                playbookContent = result.response.text();
+            }
+
+            // Cleanup code blocks if present
+            playbookContent = playbookContent.replace(/^```markdown\n/, '').replace(/^```\n/, '').replace(/\n```$/, '');
+
+            // Generate filename from task
+            const safeName = "learned_" + task.slice(0, 30).replace(/[^a-zA-Z0-9]/g, '_').toLowerCase();
+            await this._savePlaybook(safeName, playbookContent);
+
+        } catch (e) {
+            console.error("❌ Learning Failed:", e.message);
+        }
+    }
 }
 
 module.exports = new LLMService();

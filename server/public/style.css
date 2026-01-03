@@ -152,7 +152,33 @@ body {
 .controls {
     display: flex;
     align-items: center;
-    gap: 2rem;
+    gap: 1.5rem;
+}
+
+/* Download Button */
+.btn-download {
+    background: rgba(0, 255, 159, 0.1);
+    border: 1px solid var(--accent-primary);
+    color: var(--accent-primary);
+    padding: 8px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-weight: 600;
+    transition: all 0.2s;
+    font-family: 'Segoe UI', sans-serif;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn-download:hover {
+    background: var(--accent-primary);
+    color: var(--bg-primary);
+    box-shadow: 0 0 15px rgba(0, 255, 159, 0.4);
+}
+
+.btn-download:active {
+    transform: scale(0.98);
 }
 
 /* Toggle Switch */

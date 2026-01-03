@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet publish:*)",
+      "Bash(npm run verify-patch)",
+      "Bash(pwsh:*)",
+      "Bash(powershell:*)",
+      "Bash(xxd:*)"
+    ]
+  }
+}

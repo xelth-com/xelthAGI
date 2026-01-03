@@ -6,6 +6,16 @@
 
 ## Medium Priority
 
+### 7. PowerShell Dependency for Client Build
+**Status:** DISCOVERED 2026-01-03
+**Location:** `client/SupportAgent/Scripts/inject_token_slot.ps1`
+**Issue:** Token slot injection requires PowerShell, which may not be available on all build environments
+**Impact:** Build process fails without PowerShell
+**Fix Required:**
+- Create cross-platform Node.js script for token injection
+- Or bundle PowerShell Core with build process
+**Priority:** Medium - affects CI/CD pipelines
+
 ### 2. Build Warning: COM Hosting for Standalone Deployments
 **Status:** EXISTING
 **Location:** Client build process

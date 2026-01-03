@@ -89,6 +89,10 @@ class Program
         using var automationService = new UIAutomationService();
         var serverService = new ServerCommunicationService(serverUrl, _clientId);
 
+        // Initialize OCR Service for text recognition
+        var ocrService = new OcrService();
+        Console.WriteLine($"OCR Support: {(ocrService.IsSupported ? "✅ Available" : "❌ Not Available")}");
+
         Console.WriteLine($"Connecting to server: {serverUrl}");
         if (!await serverService.IsServerAvailable())
         {
@@ -185,6 +189,29 @@ class Program
                 {
                     Console.WriteLine($"  📷 Capturing AI Vision screenshot (Quality: {nextScreenshotQuality}%)...");
                     uiState.Screenshot = automationService.CaptureScreen(nextScreenshotQuality);
+
+                    // --- NEW: AUTO OCR ON INSPECTION ---
+                    // Whenever AI requests vision, we also give it text recognition ability
+                    if (!string.IsNullOrEmpty(uiState.Screenshot) && ocrService.IsSupported)
+                    {
+                        Console.WriteLine("  🧠 Running OCR Analysis...");
+                        try
+                        {
+                            byte[] imageBytes = Convert.FromBase64String(uiState.Screenshot);
+                            using (var ms = new MemoryStream(imageBytes))
+                            using (var bmp = new Bitmap(ms))
+                            {
+                                var ocrResult = await ocrService.GetTextFromScreen(bmp);
+                                _actionHistory.Add($"SYSTEM: {ocrResult}");
+                                Console.WriteLine("  ✅ OCR Text added to context");
+                            }
+                        }
+                        catch (Exception ocrEx)
+                        {
+                            Console.WriteLine($"  ⚠️ OCR Failed: {ocrEx.Message}");
+                        }
+                    }
+
                     nextScreenshotQuality = 0;
                 }
 

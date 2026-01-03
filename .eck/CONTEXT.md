@@ -172,9 +172,11 @@ Prevents false "no change" detection.
 - **Port:** 3232
 
 ### Client
-- **Build:** `dotnet build -c Release`
-- **Path:** client/SupportAgent/bin/Release/net8.0-windows/win-x64/
-- **Executable:** SupportAgent.exe
+- **Build:** `cd client/SupportAgent && build-release.bat`
+- **Path:** client/SupportAgent/publish/
+- **Executable:** SupportAgent.exe (~75MB with R2R optimization)
+
+**Security:** Client uses embedded access tokens (`x1_...`) for authentication. Tokens are injected at build time via post-build script.
 
 ## Quick Commands
 
@@ -198,6 +200,15 @@ curl https://xelth.com/AGI/HEALTH
 - **[OPERATIONS.md](.eck/OPERATIONS.md)**: Command reference, testing, deployment
 - **[SERVER_ACCESS.md](.eck/SERVER_ACCESS.md)**: SSH credentials, deployment procedures
 - **[NEXT_TASK.md](NEXT_TASK.md)**: Session handoff, recommendations
+
+## Security (v1.3+)
+
+XelthAGI uses **Embedded Access Tokens** for client authentication:
+
+- **Token Format**: `x1_{timestamp}_{random}` (e.g., `x1_lq2w9z_a1b2c3...`)
+- **Build Process**: `build-release.bat` compiles EXE and injects token slot
+- **Deployment**: Server patches EXE with unique token per download
+- **Verification**: `npm run verify-patch` confirms binary compatibility
 
 ## Support
 

@@ -11,6 +11,51 @@ Deploy the AI automation server as a microservice on port 3232.
 - Node.js 18+ installed
 - Git installed
 - API keys for Gemini or Claude
+- Windows machine (for client build)
+
+## 🛡️ SECURITY & CLIENT DEPLOYMENT (v1.3+)
+
+XelthAGI uses **Embedded Access Tokens** with binary patching. The server generates a unique `.exe` for each download.
+
+### 1. Build Process (Windows)
+
+Use the automated build script to create a tokenized client:
+
+```bash
+cd client/SupportAgent
+build-release.bat
+```
+
+This script:
+1. Compiles with ReadyToRun (R2R) optimization (~75MB)
+2. Injects the token slot placeholder via PowerShell
+3. Outputs to `publish\SupportAgent.exe`
+
+### 2. Deploy to Server
+
+Copy the built executable to the server:
+```
+/var/www/xelthAGI/server/public/downloads/SupportAgent.exe
+```
+
+### 3. Verify (Server)
+
+Run the verification script:
+```bash
+cd /var/www/xelthAGI/server
+npm run verify-patch
+```
+
+Expected output: `SUCCESS: Placeholder found and patched correctly!`
+
+### Token Format
+
+Tokens follow the `x1_{timestamp}_{random}` format:
+- `x1` - Xelth Protocol v1 prefix
+- `{timestamp}` - Base36 encoded Unix timestamp
+- `{random}` - 32-character hex random string
+
+Example: `x1_lq2w9z_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p`
 
 ## Quick Deployment Steps
 

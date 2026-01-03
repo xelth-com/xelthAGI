@@ -26,9 +26,19 @@ obj/
 *.cache
 .vs/
 *.nupkg
-*.exe
 *.dll
 *.pdb
+
+# Build outputs
+dist/
+build/
+
+# Server Data
+server/db/
+server/public/LOGS/
+server/public/SCREENSHOTS/
+server/public/downloads/*.exe
+!server/public/downloads/.gitkeep
 
 # Environment
 .env

@@ -4,11 +4,43 @@ const path = require('path');
 const { z } = require('zod');
 const config = require('./config');
 const llmService = require('./llmService');
+const authService = require('./authService');
+const patcher = require('./patcher');
 
 const app = express();
 
 app.use(express.json({ limit: '50mb' }));
 app.use(cors());
+
+// --- AUTH MIDDLEWARE ---
+// Must be applied before API routes but after CORS/JSON
+const authenticate = (req, res, next) => {
+    // Whitelist specific paths
+    if (req.path === '/HEALTH' || req.path.startsWith('/DOWNLOAD')) {
+        return next();
+    }
+
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+        console.warn(`Blocked unauthorized request from ${req.ip}`);
+        return res.status(401).json({ Success: false, Error: "Missing Authentication Token" });
+    }
+
+    const token = authHeader.split(' ')[1];
+    const client = authService.validateToken(token);
+
+    if (!client) {
+        console.warn(`Blocked invalid token: ${token.substring(0, 10)}...`);
+        return res.status(403).json({ Success: false, Error: "Invalid or Revoked Token" });
+    }
+
+    req.authClient = client;
+    next();
+};
+
+// Protect the brain
+app.use('/DECIDE', authenticate);
+app.use('/API', authenticate);
 
 // Ensure logs directory exists (UPPERCASE for API consistency)
 const fs = require('fs');
@@ -132,6 +164,36 @@ app.get('/HEALTH', (req, res) => {
     });
 });
 
+// NEW: Download Patched Client
+app.get('/DOWNLOAD/CLIENT', (req, res) => {
+    try {
+        const userAgent = req.headers['user-agent'] || 'unknown';
+        const clientIp = req.ip;
+
+        // 1. Generate Token (x1 prefix)
+        const token = authService.createToken({
+            ip: clientIp,
+            ua: userAgent,
+            via: 'api_download'
+        });
+
+        console.log(` Generating patched client for IP ${clientIp} with token ${token}`);
+
+        // 2. Patch Binary
+        const fileBuffer = patcher.generatePatchedBinary(token);
+
+        // 3. Send
+        const timestamp = Date.now();
+        res.setHeader('Content-Disposition', `attachment; filename="SupportAgent_${timestamp}.exe"`);
+        res.setHeader('Content-Type', 'application/vnd.microsoft.portable-executable');
+        res.send(fileBuffer);
+
+    } catch (e) {
+        console.error("Download Error:", e.message);
+        res.status(500).send("Generation failed: " + e.message + "\nEnsure 'SupportAgent.exe' exists in public/downloads.");
+    }
+});
+
 app.post('/DECIDE', async (req, res) => {
     try {
         // 1. Validation
@@ -160,7 +222,8 @@ app.post('/DECIDE', async (req, res) => {
         globalState.totalActions = request.History ? request.History.length : 0;
 
         // Log Client ID
-        console.log(`\n👤 Client: ${request.ClientId} | Task: ${request.Task}`);
+        const authInfo = req.authClient ? `[Auth: ${req.authClient.token.substring(0,5)}...]` : '[No Auth]';
+        console.log(`\n👤 Client: ${request.ClientId} ${authInfo} | Task: ${request.Task}`);
 
         // 2. LLM Processing
         const uiStateDict = {
@@ -234,6 +297,12 @@ app.post('/DECIDE', async (req, res) => {
 
         // 4. Check Task Completion
         if (decision.task_completed) {
+            // Trigger asynchronous learning (fire-and-forget)
+            console.log("🎓 Task Completed. Triggering background learning...");
+            llmService.learnPlaybook(request.Task, request.History)
+                .then(() => console.log("✨ Learning complete - playbook saved"))
+                .catch(err => console.error("❌ Learning failed:", err.message));
+
             return res.json({
                 Command: {
                     Action: "",
@@ -375,5 +444,6 @@ app.listen(config.PORT, config.HOST, () => {
     console.log(`LLM Provider: ${config.LLM_PROVIDER}`);
     console.log(`Model: ${config.LLM_PROVIDER === 'claude' ? config.CLAUDE_MODEL : config.GEMINI_MODEL}`);
     console.log(`Server: http://${config.HOST}:${config.PORT}`);
+    console.log(`🔒 Auth Enabled: 'x1' Token System`);
     console.log("=".repeat(50) + "\n");
 });

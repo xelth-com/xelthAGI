@@ -1,5 +1,6 @@
 using Newtonsoft.Json;
 using SupportAgent.Models;
+using System.Net.Http.Headers; // Required for AuthenticationHeaderValue
 using System.Text;
 
 namespace SupportAgent.Services;
@@ -18,6 +19,19 @@ public class ServerCommunicationService
         {
             Timeout = TimeSpan.FromSeconds(30)
         };
+
+        // --- AUTHENTICATION INJECTION ---
+        // Read the embedded token from the binary itself
+        var token = AuthConfig.GetToken();
+
+        // If patched, send as Bearer token
+        if (token != "DEV_TOKEN_UNPATCHED")
+        {
+            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        }
+
+        // Always send ClientID as a header for logging
+        _httpClient.DefaultRequestHeaders.Add("X-Client-ID", _clientId);
     }
 
     /// <summary>
@@ -43,6 +57,16 @@ public class ServerCommunicationService
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
 
                 var response = await _httpClient.PostAsync($"{_serverUrl}/decide", content);
+
+                // AUTH ERROR HANDLING
+                if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized ||
+                    response.StatusCode == System.Net.HttpStatusCode.Forbidden)
+                {
+                    Console.WriteLine("\n AUTH ERROR: Server rejected the embedded token.");
+                    Console.WriteLine("   Please download a fresh copy of the agent from the dashboard.\n");
+                    return null;
+                }
+
                 response.EnsureSuccessStatusCode();
 
                 var responseJson = await response.Content.ReadAsStringAsync();

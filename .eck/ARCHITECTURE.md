@@ -63,8 +63,10 @@ XelthAGI is a desktop automation framework that combines AI-driven decision-maki
 - **Playbook Storage**: Saves successful workflows as reusable playbooks
 
 **Key Files:**
-- `server.js`: Express server, endpoints, health checks
+- `index.js`: Express server, endpoints, health checks, auth middleware
 - `llmService.js`: Prompt construction, LLM communication, loop detection
+- `authService.js`: Token generation and validation (`x1_...` format)
+- `patcher.js`: Binary patching for embedded token injection
 
 ### 2. Client (C# .NET 8)
 **Location:** `client/SupportAgent/`
@@ -249,11 +251,14 @@ if (highRiskActions.Contains(action) && !unsafeMode) {
 
 ## Security Considerations
 
-1. **No Credentials in Client**: API keys stored server-side only
-2. **HTTPS Only**: Client-server communication encrypted
-3. **Safety Rails**: Destructive actions require confirmation
-4. **Admin Checks**: Registry HKLM writes require elevation
-5. **User Visibility**: All actions logged to console
+1. **Embedded Access Tokens**: Binary-patched `x1_...` tokens for client auth
+2. **Token Database**: Server maintains `db/clients.json` with active tokens
+3. **Binary Patching**: Post-build injection of token slot into EXE
+4. **No Credentials in Client**: API keys stored server-side only
+5. **HTTPS Only**: Client-server communication encrypted
+6. **Safety Rails**: Destructive actions require confirmation
+7. **Admin Checks**: Registry HKLM writes require elevation
+8. **User Visibility**: All actions logged to console
 
 ## Performance Optimizations
 

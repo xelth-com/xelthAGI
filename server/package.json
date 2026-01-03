@@ -5,7 +5,8 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "dev": "node --watch src/index.js"
+    "dev": "node --watch src/index.js",
+    "verify-patch": "node verify_patch.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.33.1",

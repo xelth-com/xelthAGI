@@ -2,7 +2,7 @@
 REM Build standalone executable for remote deployment
 
 echo ========================================
-echo   Building Support Agent - Release
+echo   Building Support Agent - Release (Trimmed)
 echo ========================================
 echo.
 
@@ -12,13 +12,24 @@ if exist "bin\Release" rmdir /s /q "bin\Release"
 if exist "publish" rmdir /s /q "publish"
 echo.
 
-REM Build standalone executable
-echo [2/3] Building standalone executable...
-dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o publish
+REM Build standalone executable with ReadyToRun (crossgen)
+echo [2/3] Building standalone executable (R2R)...
+dotnet publish -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:PublishReadyToRun=true -o publish
 echo.
 
 if %errorlevel% neq 0 (
     echo ERROR: Build failed!
+    pause
+    exit /b 1
+)
+
+REM Inject token slot placeholder for binary patching
+echo [2.5/3] Injecting token slot placeholder...
+powershell -ExecutionPolicy Bypass -File "Scripts\inject_token_slot.ps1"
+echo.
+
+if %errorlevel% neq 0 (
+    echo ERROR: Token slot injection failed!
     pause
     exit /b 1
 )
