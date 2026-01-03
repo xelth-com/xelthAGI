@@ -1,6 +1,7 @@
 const { claudeClient, geminiClient } = require('./llm.provider');
 const config = require('./config');
-const fs = require('fs').promises;
+const fs = require('fs');
+const fsPromises = require('fs').promises;
 const path = require('path');
 
 class LLMService {
@@ -9,7 +10,6 @@ class LLMService {
         this.claude = claudeClient;
         this.gemini = geminiClient;
 
-        // Gemini models with fallback
         this.geminiPrimaryModel = config.GEMINI_MODEL || 'gemini-3-flash-preview';
         this.geminiFallbackModel = 'gemini-2.5-flash';
 
@@ -24,7 +24,7 @@ class LLMService {
     async _loadPlaybook(playbookName) {
         try {
             const playbookPath = path.join(__dirname, '..', 'playbooks', `${playbookName}.md`);
-            const content = await fs.readFile(playbookPath, 'utf8');
+            const content = await fsPromises.readFile(playbookPath, 'utf8');
             return content;
         } catch (error) {
             console.error(`❌ Failed to load playbook '${playbookName}': ${error.message}`);
@@ -34,139 +34,96 @@ class LLMService {
 
     async _savePlaybook(filename, content) {
         try {
-            // Ensure filename has .md extension
-            if (!filename.endsWith('.md')) {
-                filename = `${filename}.md`;
-            }
-
+            if (!filename.endsWith('.md')) filename = `${filename}.md`;
             const playbookPath = path.join(__dirname, '..', 'playbooks', filename);
-            await fs.writeFile(playbookPath, content, 'utf8');
-            console.log(`✅ Playbook saved: ${filename}`);
+            await fsPromises.writeFile(playbookPath, content, 'utf8');
             return `✅ Playbook saved successfully: ${filename}`;
         } catch (error) {
-            console.error(`❌ Failed to save playbook '${filename}': ${error.message}`);
             return `ERROR: Failed to save playbook - ${error.message}`;
         }
     }
 
     async _performWebSearch(query) {
         try {
-            console.log(`🔍 Performing web search (Google API): "${query}"`);
-
+            console.log(`🔍 Performing web search: "${query}"`);
             if (!config.GOOGLE_SEARCH_API_KEY || !config.GOOGLE_SEARCH_CX) {
-                return 'WEB_SEARCH_RESULT: ERROR - Google Search API Key or CX is not configured on the server.';
+                return 'WEB_SEARCH_RESULT: ERROR - Google Search API Key/CX not configured.';
             }
-
             const url = `https://www.googleapis.com/customsearch/v1?key=${config.GOOGLE_SEARCH_API_KEY}&cx=${config.GOOGLE_SEARCH_CX}&q=${encodeURIComponent(query)}`;
-
             const response = await fetch(url);
-            if (!response.ok) {
-                const errorData = await response.text();
-                throw new Error(`Google API Error: ${response.status} - ${errorData}`);
-            }
-
+            if (!response.ok) throw new Error(`Google API Error: ${response.status}`);
             const data = await response.json();
+            if (!data.items || data.items.length === 0) return 'WEB_SEARCH_RESULT: No results found.';
 
-            if (!data.items || data.items.length === 0) {
-                return 'WEB_SEARCH_RESULT: No results found for query.';
-            }
-
-            // Format top 5 results
             const topResults = data.items.slice(0, 5);
             let formattedResults = `WEB_SEARCH_RESULT for "${query}":\n\n`;
-
             topResults.forEach((result, index) => {
-                formattedResults += `${index + 1}. ${result.title}\n`;
-                formattedResults += `   URL: ${result.link}\n`;
-                if (result.snippet) {
-                    formattedResults += `   ${result.snippet.replace(/\n/g, ' ')}\n`;
-                }
-                formattedResults += '\n';
+                formattedResults += `${index + 1}. ${result.title}\n   URL: ${result.link}\n   ${(result.snippet || '').replace(/\n/g, ' ')}\n\n`;
             });
-
-            console.log(`✅ Found ${topResults.length} search results`);
             return formattedResults.trim();
         } catch (error) {
-            console.error(`❌ Web search failed: ${error.message}`);
             return `WEB_SEARCH_RESULT: ERROR - ${error.message}`;
         }
     }
 
     async decideNextAction(uiState, task, history) {
-        // Check if task is a playbook reference
+        // Playbook Expansion
         let effectiveTask = task;
         if (task.startsWith('playbook:')) {
-            const playbookName = task.substring(9).trim(); // Remove 'playbook:' prefix
+            const playbookName = task.substring(9).trim();
             const playbookContent = await this._loadPlaybook(playbookName);
             if (playbookContent) {
                 effectiveTask = `Execute the following playbook:\n\n${playbookContent}`;
-                console.log(`📖 Loaded playbook: ${playbookName}`);
-            } else {
-                effectiveTask = task; // Fallback to original task if playbook not found
             }
         }
 
         const screenshotBase64 = uiState.Screenshot || null;
         const prompt = this._buildPrompt(uiState, effectiveTask, history, screenshotBase64);
 
+        // DEBUG: Save the exact prompt we are sending to LLM
+        // This allows the user to see "What exactly are we sending?"
+        try {
+            const debugPath = path.join(__dirname, '..', 'public', 'LOGS', 'last_prompt.txt');
+            fs.writeFileSync(debugPath, prompt);
+        } catch (e) { /* Ignore log write errors */ }
+
         let response;
         if (this.provider === 'claude') {
             response = await this._askClaude(prompt, screenshotBase64);
-        } else if (this.provider === 'gemini') {
+        } else {
             response = await this._askGemini(prompt, screenshotBase64);
         }
 
-        // SERVER-SIDE ACTION INTERCEPTION: Check if LLM wants to perform web search
+        // Server-Side Actions (Search / Playbook)
         if (response && response.action === 'net_search') {
             const query = response.text || '';
-            console.log(`🌐 LLM requested web search - intercepting on server side`);
-
-            // Perform the search
             const searchResults = await this._performWebSearch(query);
-
-            // Add search request and results to history
-            const updatedHistory = [...history];
-            updatedHistory.push(`net_search: "${query}" - Requested web search`);
-            updatedHistory.push(searchResults);
-
-            // Recursively call LLM with updated history (search results fed back)
-            console.log(`🔄 Feeding search results back to LLM for next decision`);
+            const updatedHistory = [...history, `net_search: "${query}"`, searchResults];
             return await this.decideNextAction(uiState, effectiveTask, updatedHistory);
         }
 
-        // SERVER-SIDE ACTION INTERCEPTION: Check if LLM wants to create a playbook
         if (response && response.action === 'create_playbook') {
             const filename = response.text || 'untitled';
-            const content = response.element_id || '# Untitled Playbook\n\nNo content provided.';
-            console.log(`📝 LLM requested playbook creation - intercepting on server side`);
-
-            // Save the playbook
+            const content = response.element_id || '';
             const saveResult = await this._savePlaybook(filename, content);
-
-            // Add creation request and result to history
-            const updatedHistory = [...history];
-            updatedHistory.push(`create_playbook: "${filename}" - Requested playbook creation`);
-            updatedHistory.push(`PLAYBOOK_SAVED: ${saveResult}`);
-
-            // Recursively call LLM with updated history (save result fed back)
-            console.log(`🔄 Feeding playbook save result back to LLM for next decision`);
+            const updatedHistory = [...history, `create_playbook: "${filename}"`, saveResult];
             return await this.decideNextAction(uiState, effectiveTask, updatedHistory);
         }
 
-        // Normal flow - return physical action for client to execute
         return response;
     }
 
     _buildPrompt(uiState, task, history, screenshotBase64 = null) {
         const elementsSummary = this._summarizeElements(uiState.Elements || []);
-        const historyText = history && history.length > 0
-            ? history.slice(-10).map((h, i) => `  ${i + 1}. ${h}`).join('\n')
-            : '  (none)';
 
-        // CONTEXT INJECTION: Extract last system result to make it visible
+        // INFINITE MEMORY: Send full history with numbering
+        const historyText = history && history.length > 0
+            ? history.map((h, i) => `Step ${i + 1}: ${h}`).join('\n')
+            : '(No actions taken yet)';
+
+        // Context Injection (OS_RESULT)
         let lastSystemResult = "None";
-        if (history && history.length > 0) {
-            // Search backwards for the last meaningful result
+        if (history) {
             for (let i = history.length - 1; i >= 0; i--) {
                 const entry = history[i];
                 if (entry.includes("OS_RESULT:") || entry.includes("CLIPBOARD_CONTENT:") || entry.includes("WEB_SEARCH_RESULT")) {
@@ -176,537 +133,84 @@ class LLMService {
             }
         }
 
-        const hasScreenshot = !!screenshotBase64;
-        const visionMode = hasScreenshot ? 'VISUAL MODE (Image provided)' : 'TEXT-ONLY MODE (Economy)';
+        const visionMode = screenshotBase64 ? 'VISUAL MODE (Image provided)' : 'TEXT-ONLY MODE (Economy)';
 
-        // PATH 2: MINIMIZED WINDOW DETECTION (Cognitive Awareness)
-        // Windows often sets coordinates to -32000 for minimized windows
-        let windowStatusWarning = '';
-        if (uiState.Elements && uiState.Elements.length > 0) {
-            const mainElement = uiState.Elements[0]; // Usually the main document or window container
-            if (mainElement.Bounds && mainElement.Bounds.X < -1000) {
-                windowStatusWarning = `
-**⚠️ CRITICAL VISION WARNING: TARGET WINDOW IS MINIMIZED OR OFF-SCREEN!**
-Coordinates are negative (${mainElement.Bounds.X}). You cannot see the UI contents.
-**IMMEDIATE ACTION REQUIRED:**
-1. Do NOT try to click coordinates.
-2. Execute command: {"action": "switch_window", "text": "${uiState.WindowTitle || 'target app'}"} to force-restore it.
-`;
-            }
-        }
-
-        // LOOP DETECTION: Analyze last actions for repeated patterns
-        let loopWarning = '';
-        if (history && history.length >= 3) {
-            const lastActions = history.slice(-5); // Check last 5 actions
-
-            // Extract action type (first word: click, type, key, etc.)
-            const actionTypes = lastActions.map(h => {
-                const match = h.match(/^(\w+)\s/);
-                return match ? match[1] : '';
-            });
-
-            // Count consecutive identical action types
-            const lastAction = actionTypes[actionTypes.length - 1];
-            let consecutiveCount = 0;
-            for (let i = actionTypes.length - 1; i >= 0; i--) {
-                if (actionTypes[i] === lastAction) {
-                    consecutiveCount++;
-                } else {
-                    break;
-                }
-            }
-
-            // Count "NO CHANGE" markers in last actions
-            const unchangedCount = lastActions.filter(h => h.includes('NO CHANGE')).length;
-
-            if (consecutiveCount >= 3 || unchangedCount >= 3) {
-                loopWarning = `
-
-**🚨 CRITICAL WARNING: INFINITE LOOP DETECTED! 🚨**
-
-SYSTEM ANALYSIS:
-- Same action type repeated ${consecutiveCount} times in a row
-- ${unchangedCount} of last ${lastActions.length} actions show "NO CHANGE"
-- YOU ARE STUCK IN A LOOP!
-
-**IMMEDIATE ACTION REQUIRED:**
-1. STOP repeating the same action type (${lastAction})
-2. This approach is NOT working - the UI is not responding as expected
-3. Switch to a COMPLETELY DIFFERENT strategy:
-   - If clicking failed -> try keyboard commands (Ctrl+A, Delete, etc.)
-   - If typing failed -> request screenshot via inspect_screen
-   - If element not found -> try coordinate-based click or different element
-4. DO NOT click different element IDs if they all show "NO CHANGE" - the problem is not the element!
-
-**YOU MUST CHANGE YOUR APPROACH NOW OR YOU WILL WASTE ALL 50 STEPS!**
-`;
-            }
-        }
-
-        return `You are a UI automation agent. Your task is to help complete the following objective:
+        return `You are a UI automation agent.
 
 **TASK**: ${task}
 
 **🧠 COGNITIVE CHECK (REQUIRED)**
-Look at the **SYSTEM MEMORY** section above.
-1. Does it contain the data you need? (e.g., ping result, file content, registry value)
-2. **YES**: STOP running the command! Use the data immediately.
-   - Example: If Memory shows "Ping successful", DO NOT run net_ping again. Type "Ping successful" into the app.
+Look at the **SYSTEM MEMORY** below.
+1. Does it contain the data you need? (ping result, file content, etc.)
+2. **YES**: USE IT! Do not re-run the command.
 3. **NO**: Only then run the command.
 
 **CURRENT WINDOW**: ${uiState.WindowTitle || 'Unknown'}
-
 **MODE**: ${visionMode}
-${windowStatusWarning}
-${loopWarning}
 
 **📢 SYSTEM MEMORY (LAST RESULT) 📢**
 ${lastSystemResult}
 
-**ACTION HISTORY** (last 10 actions):
+**📜 FULL ACTION HISTORY**:
 ${historyText}
 
-**AVAILABLE UI ELEMENTS (Text Tree)**:
+**AVAILABLE UI ELEMENTS (Filtered for relevance)**:
 ${elementsSummary}
 
-${hasScreenshot ? '**SCREENSHOT**: Provided - analyze the image for visual context.' : '**SCREENSHOT**: Not provided (Saving bandwidth).'}
-
-**YOUR JOB**:
-Analyze the current UI state and determine the NEXT SINGLE ACTION to complete the task.
-
-**SELF-HEALING LOGIC** (CRITICAL):
-Look at the LAST action in the history above. Check if the UI state changed:
-- Compare the state markers: [State: Title(N) -> NewTitle(M)]
-- Check for [Content Modified] markers - this means text content changed (SUCCESS!)
-- If state shows "NO CHANGE" - the action FAILED! DO NOT REPEAT IT!
-
-**CRITICAL SELF-HEALING RULES:**
-
-1. **Look at last 3 actions in history**
-2. **If you see "NO CHANGE" 3+ times in a row for SAME action type (e.g., all "click"):**
-   - STOP clicking immediately
-   - This means clicks are NOT working
-   - Switch to alternative: use keyboard commands (Ctrl+A + Delete), request screenshot, or try different approach
-
-**ABSOLUTELY FORBIDDEN:**
-- ❌ Repeating same action type >3 times when seeing "NO CHANGE"
-- ❌ Clicking different element IDs when all show "NO CHANGE" (Notepad generates new IDs each time)
-- ❌ Ignoring "NO CHANGE" warnings and continuing the same strategy
-- ❌ Making more than 5 attempts with any single approach
-
-**EXAMPLE OF BAD BEHAVIOR (DO NOT DO THIS):**
-History shows:
-- click btn_1 [NO CHANGE]
-- click btn_2 [NO CHANGE]
-- click btn_3 [NO CHANGE]
-→ STOP clicking! Elements are not the problem. Try: Ctrl+A + Delete to clear, or request screenshot
-
-**CORRECT BEHAVIOR:**
-After 2-3 failed attempts with same action type:
-1. STOP and analyze why it's failing
-2. Try keyboard alternative (Ctrl+A, Delete, Ctrl+V, etc.)
-3. If still stuck, request screenshot via inspect_screen
-4. NEVER repeat the same failing pattern
-
-When an action fails (NO CHANGE or FAILED marker):
-1. **ANALYZE WHY**: The element might not exist, be disabled, or coordinates wrong
-2. **TRY ALTERNATIVE METHOD**:
-   - If element ID click failed -> try coordinate-based click using element's Bounds (X, Y)
-   - If typing failed -> try selecting text first (Ctrl+A) or focusing element
-   - If element not found -> request screenshot via inspect_screen for visual guidance
-3. **DO NOT REPEAT** the exact same failed action - you will waste all 50 steps!
-
-**CRITICAL WORKFLOW FOR TEXT WRITING TASKS (THE "SMART PASTE" STRATEGY)**:
-Writing long text character-by-character via 'type' is slow and fragile.
-**ALWAYS use the Clipboard Strategy for text longer than 1 sentence:**
-
-1. **PREPARE**: Clear existing text if needed (Ctrl+A -> Delete).
-2. **LOAD**: Use {"action": "write_clipboard", "text": "Your long multi-line text here..."}
-3. **PASTE**: Use {"action": "key", "text": "Ctrl+V"} to paste immediately.
-4. **VERIFY**: Check the 'Value' field in the next turn.
-
-**Example - Writing a Search Summary:**
-Step 1: {"action": "write_clipboard", "text": "Windows 11 24H2 was released on Oct 1, 2024...", "message": "Loading answer into clipboard"}
-Step 2: {"action": "key", "text": "Ctrl+V", "message": "Pasting answer into document"}
-
-**DO NOT use the 'type' command for long paragraphs! Use Clipboard + Paste!**
-
-**HUMAN ASSISTANCE** (New capability!):
-You have a HUMAN OPERATOR sitting at the client machine who can help you!
-Use {"action": "ask_user", "message": "your question or request"} when:
-
-1. **CAPTCHA or 2FA**: You encounter a CAPTCHA, security challenge, or 2-factor authentication
-   - Example: {"action": "ask_user", "message": "Please solve the CAPTCHA on screen and press Enter when done"}
-
-2. **Missing Information**: You need information not available in the UI context
-   - Example: {"action": "ask_user", "message": "What is the company name to enter in the form?"}
-   - Example: {"action": "ask_user", "message": "What password should I use for login?"}
-
-3. **Ambiguous Choices**: You're stuck between multiple valid approaches and need user decision
-   - Example: {"action": "ask_user", "message": "Should I save the file as PDF or DOCX?"}
-
-4. **Physical Actions**: Something requires physical interaction (inserting USB, pressing hardware button)
-   - Example: {"action": "ask_user", "message": "Please insert the backup USB drive and press Enter"}
-
-The user's response will appear in the next action history as "USER_SAID: [their response]".
-Then you can continue with the task using the information they provided.
-
-**WEB SEARCH** (Server-Side Knowledge Retrieval):
-You can search the web for documentation, solutions to errors, or any information you need!
-
-**How it works:**
-- This is a SERVER-SIDE action - it executes immediately without waking up the C# client
-- The search runs on the Node.js server using DuckDuckGo
-- Results are fed back into your context automatically
-- You then receive the search results and can decide the next physical action
-
-**When to use net_search:**
-1. **Unknown Errors**: You encounter an error message you don't recognize
-   - Example: "Error 0x80070005" - search for solutions
-2. **API Documentation**: You need to know the correct syntax or parameters
-   - Example: "Windows Registry HKLM permissions" - get best practices
-3. **Software Versions**: You need to check compatibility or features
-   - Example: ".NET 8 features" - understand what's available
-4. **Troubleshooting**: You're stuck and need diagnostic steps
-   - Example: "Windows service won't start troubleshooting" - get checklist
-
-**Command format:**
-{
-    "action": "net_search",
-    "text": "your search query here",
-    "message": "Searching for: [what you're looking for]"
-}
-
-**Example workflow:**
-1. You encounter error: "The application failed to initialize properly (0xc0000142)"
-2. You don't know this error code
-3. You request: {"action": "net_search", "text": "Windows error 0xc0000142 solution", "message": "Looking up error code solution"}
-4. Server performs search, returns top 5 results with URLs and descriptions
-5. Results appear in your next context as: WEB_SEARCH_RESULT for "Windows error 0xc0000142 solution": [results]
-6. You read the results and decide the next action based on the solutions found
-
-**What you get back:**
-- Top 5 search results from DuckDuckGo
-- Each result includes: Title, URL, and Description
-- Results are formatted as: WEB_SEARCH_RESULT for "[query]": [numbered list]
-
-**Important notes:**
-- Use net_search proactively when you lack information - don't guess!
-- The search is FAST - it's a server-side operation with no UI overhead
-- You can search multiple times if needed - refine your query based on results
-- Search results are added to action history automatically
-- This does NOT count as a UI action step - it's transparent to the client
-
-**PLAYBOOK CREATION** (Self-Learning & Knowledge Retention):
-You can save successful workflows as reusable Markdown playbooks for future automation!
-
-**What is a Playbook?**
-A playbook is a step-by-step guide that documents how to complete a specific task. When you successfully complete a complex workflow, you can save it as a playbook so it can be executed again in the future using "playbook:name" syntax.
-
-**When to create a playbook:**
-1. **User explicitly requests it**: User says "save this workflow", "learn this", "create a playbook", or similar
-2. **After completing complex multi-step tasks**: Tasks with 5+ steps that could be reused
-3. **Successful automation patterns**: When you discover a reliable way to accomplish something
-
-**How it works:**
-- This is a SERVER-SIDE action - executes immediately on Node.js server
-- The server saves the .md file to server/playbooks/ directory
-- Playbooks can be loaded later using task format: "playbook:name"
-- The LLM must generate the playbook content based on the action history
-
-**Command format:**
-{
-    "action": "create_playbook",
-    "text": "playbook_name",
-    "element_id": "# Full Markdown content here...",
-    "message": "Creating playbook: [description]"
-}
-
-**Playbook content structure:**
-Your playbook should be clean, concise Markdown that includes:
-
-1. **Title and Description**: What does this playbook do?
-2. **Prerequisites**: What needs to be ready before execution?
-3. **Step-by-Step Instructions**: Clear, numbered steps based on successful actions
-4. **Expected Results**: What should happen when completed correctly?
-
-**CRITICAL - Creating quality playbooks:**
-
-1. **Review the ACTION HISTORY**: Look at the last 10-20 actions that led to task completion
-2. **Filter out failures**: Remove actions that showed "NO CHANGE", "FAILED", or "ERROR"
-3. **Extract successful pattern**: Identify the sequence of actions that actually worked
-4. **Generalize where appropriate**: Replace specific values with placeholders when they might vary
-5. **Add context**: Explain WHY each step is needed, not just WHAT to do
-
-**Example workflow:**
-1. User completes task: "Install Notepad++ and configure it"
-2. User says: "Save this workflow as a playbook"
-3. You review history, filter out failed attempts
-4. You create clean Markdown playbook with successful steps
-5. You use: {"action": "create_playbook", "text": "install_notepad_plus_plus", "element_id": "# Install Notepad++\n\n## Description\nInstalls Notepad++ text editor and configures basic settings...\n\n## Steps\n1. Open browser and navigate to notepad-plus-plus.org\n2. Click Download button...", "message": "Creating playbook for Notepad++ installation"}
-6. Server saves file, confirms success
-7. Future users can run: --task "playbook:install_notepad_plus_plus"
-
-**What NOT to include in playbooks:**
-- ❌ Failed attempts or error recovery steps (unless error handling is part of the workflow)
-- ❌ Loop detection warnings or self-healing messages
-- ❌ Debug actions like inspect_screen (unless visual verification is critical)
-- ❌ Personal/sensitive information (passwords, API keys, personal paths)
-- ❌ Overly specific element IDs that change between runs
-
-**What TO include in playbooks:**
-- ✅ Clear, logical sequence of actions that worked
-- ✅ Keyboard shortcuts and commands that are reliable
-- ✅ OS operations (os_list, os_run, etc.) for efficiency
-- ✅ Expected UI states and how to verify success
-- ✅ Alternative approaches if primary method fails
-- ✅ Window switching commands if multi-app workflow
-
-**Playbook naming conventions:**
-- Use lowercase with underscores: "install_software", "configure_settings"
-- Be descriptive: "excel_create_pivot_table" not "excel_task"
-- No .md extension in the "text" field - it's added automatically
-- Keep names short but meaningful
-
 **INSTRUCTIONS**:
-1. **PREFER TEXT TREE**: Try to solve the task using ONLY the Text Tree above. It is faster and cheaper.
-2. **REQUEST VISION ONLY IF NEEDED**: If you strictly cannot find the element (e.g., custom UI, icons without text, complex visual state), you may request a screenshot.
-3. **To request a screenshot**, return action: "inspect_screen" and set "text" parameter to quality level:
-   - "20" for checking window layout/existence (Low quality, very cheap)
-   - "50" for finding buttons/icons (Medium quality)
-   - "70" for reading small text/captchas (High quality, expensive)
+1. Analyze the UI Elements and History.
+2. Determine the NEXT SINGLE ACTION.
+3. If you see "NO CHANGE" in history multiple times, switch strategy (e.g. use keyboard instead of click).
+4. If the element is not in the list, use "inspect_screen" to see it.
 
-**OS / SYSTEM COMMANDS** (Fast file operations & process control):
-*REMEMBER: Results appear in history as "OS_RESULT". Read them there!*
-For file management, log reading, and system tasks, use OS commands instead of UI automation - MUCH faster!
-
-**Available Commands:**
-
-1. **os_list**: List files/directories
-   - Example: {"action": "os_list", "text": "C:\\\\Temp", "message": "Listing temp folder contents"}
-   - Result appears as: OS_RESULT: [DIR] folder1\n[FILE] file.txt (25 KB)
-
-2. **os_read**: Read text file content (max 2000 chars by default)
-   - Example: {"action": "os_read", "text": "C:\\\\logs\\\\app.log", "message": "Reading application log"}
-   - Optional: Set element_id to custom max chars: {"element_id": "5000"}
-   - Result appears as: OS_RESULT: file content here...
-
-3. **os_delete**: Delete file or directory (recursive)
-   - Example: {"action": "os_delete", "text": "C:\\\\Temp\\\\cache", "message": "Clearing cache folder"}
-   - Result: OS_RESULT: ✅ Deleted directory: C:\\\\Temp\\\\cache
-
-4. **os_run**: Launch application or process
-   - Example: {"action": "os_run", "text": "notepad.exe", "element_id": "C:\\\\file.txt", "message": "Opening file in Notepad"}
-   - text = executable path, element_id = arguments (optional)
-   - Result: OS_RESULT: ✅ Started process: notepad.exe (PID: 1234)
-
-5. **os_kill**: Kill process by name
-   - Example: {"action": "os_kill", "text": "notepad", "message": "Closing all Notepad instances"}
-   - Result: OS_RESULT: ✅ Killed 2 process(es) named 'notepad'
-
-6. **os_mkdir**: Create directory
-   - Example: {"action": "os_mkdir", "text": "C:\\\\Projects\\\\NewFolder", "message": "Creating project folder"}
-
-7. **os_write**: Write text to file (overwrites)
-   - Example: {"action": "os_write", "text": "C:\\\\output.txt", "element_id": "Hello World", "message": "Writing output"}
-   - text = file path, element_id = content to write
-
-8. **os_exists**: Check if file/directory exists
-   - Example: {"action": "os_exists", "text": "C:\\\\file.txt", "message": "Checking if file exists"}
-   - Result: OS_RESULT: EXISTS: File - file.txt (25 KB) OR NOT FOUND
-
-**When to use OS commands:**
-- ✅ Clearing folders (os_delete faster than clicking in Explorer)
-- ✅ Reading log files (os_read instead of opening in Notepad)
-- ✅ Launching applications (os_run instead of Start Menu navigation)
-- ✅ Checking if files exist before operations (os_exists)
-- ✅ Creating folder structures (os_mkdir)
-- ❌ Don't use for interactive tasks requiring UI (use regular automation)
-
-**Error Handling:**
-All OS commands return results prefixed with "ERROR:" if they fail:
-- OS_RESULT: ERROR: Access denied: C:\\\\System
-- OS_RESULT: ERROR: File not found: C:\\\\missing.txt
-
-**IT SUPPORT TOOLKIT** (Registry, Network & Environment):
-Advanced diagnostics and configuration tools for IT support tasks.
-
-**Environment Variables:**
-1. **os_getenv**: Read environment variable
-   - Example: {"action": "os_getenv", "text": "PATH", "message": "Checking PATH variable"}
-   - Result: OS_RESULT: PATH = C:\\\\Windows\\\\system32;...
-
-**Windows Registry Operations:**
-2. **reg_read**: Read registry value
-   - Example: {"action": "reg_read", "text": "HKLM\\\\Software\\\\Microsoft\\\\Windows\\\\CurrentVersion", "element_id": "ProgramFilesDir", "message": "Checking Program Files location"}
-   - Format: text = "ROOT\\\\KeyPath", element_id = "ValueName"
-   - Roots: HKLM, HKCU, HKCR, HKU, HKCC
-   - Result: OS_RESULT: ✅ HKLM\\\\Software\\\\...\\\\ProgramFilesDir = C:\\\\Program Files
-
-3. **reg_write**: Write registry value (requires Admin for HKLM)
-   - Example: {"action": "reg_write", "text": "HKCU\\\\Software\\\\MyApp", "element_id": "Setting", "x": 1, "message": "Updating app setting"}
-   - Format: text = "ROOT\\\\KeyPath", element_id = "ValueName", x = value
-   - WARNING: HKLM writes require Administrator privileges
-   - Result: OS_RESULT: ✅ Set HKCU\\\\Software\\\\MyApp\\\\Setting = 1
-
-**Network Diagnostics:**
-4. **net_ping**: Ping a host to check connectivity
-   - Example: {"action": "net_ping", "text": "google.com", "message": "Checking internet connectivity"}
-   - Optional: x = timeout in ms (default 2000)
-   - Result: OS_RESULT: ✅ Ping successful: google.com (142.250.185.78) - 15ms
-
-5. **net_port**: Check if TCP port is open
-   - Example: {"action": "net_port", "text": "localhost", "x": 3000, "message": "Checking if web server is running"}
-   - Format: text = host, x = port number
-   - Optional: y = timeout in ms (default 2000)
-   - Result: OS_RESULT: ✅ Port 3000 is OPEN on localhost
-
-**IT Support Use Cases:**
-- ✅ Check software versions via registry (e.g., HKLM\\\\Software\\\\...)
-- ✅ Read configuration from environment variables (PATH, JAVA_HOME, etc.)
-- ✅ Diagnose network connectivity issues (ping servers, check ports)
-- ✅ Verify services are running (check ports: 80, 443, 3306, etc.)
-- ✅ Troubleshoot application settings in HKCU registry
-- ⚠️  Registry writes require caution - can affect system stability
-
-**🛡️ SAFETY NOTICE - Destructive Action Confirmations:**
-The following HIGH-RISK actions require human confirmation by default:
-- **os_delete**: Deletes files/directories permanently
-- **os_kill**: Terminates running processes
-- **reg_write**: Modifies Windows Registry
-- **os_run**: Launches new processes
-- **write_clipboard**: Overwrites clipboard content
-
-If you receive a history entry like "FAILED: User denied os_delete ... - Safety check":
-1. The user rejected the action for safety reasons
-2. **Explain why the action is necessary** and what it will do
-3. **Suggest a safer alternative** if possible (e.g., read file first, use os_exists to verify)
-4. The user can run with --unsafe flag to bypass all confirmations
-
-**Example Recovery:**
-- History shows: "FAILED: User denied os_delete C:\\\\Temp\\\\cache - Safety check"
-- Your response: "I understand you're cautious. I wanted to delete the cache folder to free up space. Would you like me to first check what's in there using os_list, or would you prefer to keep the cache?"
-
-**CLIPBOARD OPERATIONS** (Extract hard-to-read text):
-You can READ and WRITE clipboard content directly!
-
-**When to use:**
-- Text is not accessible via UI Automation tree (custom rendered text, images with text)
-- Need to extract selected text: Select element -> Ctrl+C -> read_clipboard
-- Need to paste pre-formatted text: write_clipboard -> Ctrl+V
-
-**Commands:**
-1. **read_clipboard**: Reads current clipboard content
-   - Example: {"action": "read_clipboard", "message": "Reading clipboard to extract copied text"}
-   - The clipboard content will appear in next history as: CLIPBOARD_CONTENT: "text here"
-
-2. **write_clipboard**: Writes text to clipboard (without pasting)
-   - Example: {"action": "write_clipboard", "text": "your text", "message": "Setting clipboard for paste"}
-   - Then use: {"action": "key", "text": "Ctrl+V"} to paste
-
-**Common pattern for stubborn UI elements:**
-1. Click element or use Ctrl+A to select
-2. {"action": "key", "text": "Ctrl+C"} - Copy to clipboard
-3. {"action": "read_clipboard"} - Extract the text
-4. Use extracted text for verification or processing
-
-**WINDOW MANAGEMENT** (Multi-app workflows):
-You can switch between different application windows during task execution!
-
-**Command:**
-- **switch_window**: Switch to a different window by title or process name
-  - Example: {"action": "switch_window", "text": "Calculator", "message": "Switching to Calculator app"}
-  - Example: {"action": "switch_window", "text": "notepad", "message": "Switching back to Notepad"}
-  - Text parameter can be partial window title or process name (e.g., "Excel", "chrome", "Settings")
-
-**When to use:**
-- Task requires multiple applications (e.g., copy from Excel, paste to Word)
-- New window/dialog opens that you need to interact with
-- Popup appears that needs attention before continuing
-- Task involves switching between browser and desktop app
-
-**Example Multi-App Workflow:**
-1. Work in Notepad: {"action": "type", "text": "Hello"}
-2. Switch to Calculator: {"action": "switch_window", "text": "Calculator"}
-3. Do calculation: {"action": "click", "element_id": "num5Button"}
-4. Switch back to Notepad: {"action": "switch_window", "text": "notepad"}
-5. Continue working: {"action": "type", "text": " World"}
-
-**Notes:**
-- Window must be open/running before switching to it
-- If window not found, command returns error - use os_run to launch apps first
-- Current window persists until you explicitly switch
-- After switch_window, all subsequent actions apply to the new window
-
-**RESPONSE FORMAT** (JSON only):
+**RESPONSE FORMAT (JSON ONLY)**:
 {
-    "action": "click|type|key|select|wait|download|inspect_screen|ask_user|read_clipboard|write_clipboard|os_list|os_read|os_delete|os_run|os_kill|os_mkdir|os_write|os_exists|os_getenv|reg_read|reg_write|net_ping|net_port|net_search|switch_window|create_playbook",
-    "element_id": "element_automation_id (OPTIONAL for coordinate clicks)",
-    "x": "X coordinate (OPTIONAL for coordinate-based click)",
-    "y": "Y coordinate (OPTIONAL for coordinate-based click)",
-    "text": "text to type OR key command OR quality level OR clipboard text",
-    "url": "download URL (only for 'download' action)",
-    "local_file_name": "filename to save (only for 'download' action)",
-    "message": "explanation of what you're doing",
-    "task_completed": true|false,
-    "reasoning": "why you chose this action. If requesting screen, explain why text tree failed."
-}
-
-**COORDINATE-BASED CLICKS** (Fallback method):
-If you cannot find element by ID or element click keeps failing:
-- Look at element's Bounds in the UI tree: "Bounds: {X: 100, Y: 200, Width: 50, Height: 30}"
-- Calculate center point: center_x = X + Width/2, center_y = Y + Height/2
-- Use: {"action": "click", "x": center_x, "y": center_y, "element_id": ""}
-- Example: {"action": "click", "x": 125, "y": 215, "message": "Clicking button by coordinates"}
-
-**KEY COMMANDS** (for action: "key"):
-- "Ctrl+A" - Select all text
-- "Delete" - Delete selected/next character
-- "Backspace" - Delete previous character
-- "Enter" - Press Enter
-- "Ctrl+C" / "Ctrl+V" / "Ctrl+X" - Copy/Paste/Cut
-
-**EXAMPLE WORKFLOW** to clear and write text:
-Step 1: {"action": "key", "text": "Ctrl+A", "message": "Selecting all existing text"}
-Step 2: {"action": "key", "text": "Delete", "message": "Clearing document"}
-Step 3: {"action": "type", "element_id": "doc_id", "text": "Your text here", "message": "Writing new text"}
-Step 4: Check Value field to verify exact match
-
-**RULES**:
-1. Return ONLY ONE action at a time
-2. If task is complete, set task_completed=true and action=""
-3. Be precise - use exact element IDs from the list above
-4. If element not found in text tree AND no screenshot available, request screenshot via inspect_screen
-5. Think step by step
-
-Respond with JSON only, no additional text.`;
+    "action": "click|type|key|select|wait|download|inspect_screen|ask_user|read_clipboard|write_clipboard|os_list|os_read|os_delete|os_run|os_kill|os_mkdir|os_write|os_exists|os_getenv|reg_read|reg_write|net_ping|net_port|net_search|switch_window",
+    "element_id": "...",
+    "text": "...",
+    "reasoning": "Briefly explain why you chose this action."
+}`;
     }
 
     _summarizeElements(elements) {
-        if (!elements || elements.length === 0) return '  No UI elements found';
+        if (!elements || elements.length === 0) return '  (No UI elements found)';
 
         let summaryLines = [];
-        const limit = 30;
+        const limit = 100; // Allow more elements since we are filtering garbage
 
-        for (let i = 0; i < Math.min(elements.length, limit); i++) {
-            const elem = elements[i];
-            const status = elem.IsEnabled ? '✓' : '✗';
-            const valueText = elem.Value ? ` = '${elem.Value}'` : '';
+        let validCount = 0;
+        for (const elem of elements) {
+            if (validCount >= limit) break;
 
-            // Добавляем координаты для coordinate-based clicks
-            const bounds = elem.Bounds || {};
-            const centerX = bounds.X && bounds.Width ? Math.round(bounds.X + bounds.Width / 2) : 0;
-            const centerY = bounds.Y && bounds.Height ? Math.round(bounds.Y + bounds.Height / 2) : 0;
-            const coordsText = centerX > 0 && centerY > 0 ? ` @(${centerX},${centerY})` : '';
+            // CLEANING LOGIC: Skip useless elements
+            // 1. Skip elements with no name AND no value (unless they are inputs/buttons that might be unnamed)
+            const hasName = elem.Name && elem.Name.trim().length > 0;
+            const hasValue = elem.Value && elem.Value.trim().length > 0;
+            const isInteractive = elem.Type.includes("Button") || elem.Type.includes("Edit") || elem.Type.includes("Item");
 
-            summaryLines.push(
-                `  [${status}] ${elem.Type}: '${elem.Name}' (id: ${elem.Id})${valueText}${coordsText}`
-            );
+            if (!hasName && !hasValue && !isInteractive) {
+                continue; // Skip noise
+            }
+
+            // 2. Format concisely
+            let line = `  [${elem.Type}]`;
+            if (hasName) line += ` "${elem.Name}"`;
+            if (hasValue) line += ` Val="${elem.Value}"`;
+            line += ` (ID:${elem.Id})`;
+
+            // Add coordinates for fallback clicking
+            if (elem.Bounds && elem.Bounds.Width > 0) {
+                const cx = Math.round(elem.Bounds.X + elem.Bounds.Width/2);
+                const cy = Math.round(elem.Bounds.Y + elem.Bounds.Height/2);
+                line += ` @(${cx},${cy})`;
+            }
+
+            summaryLines.push(line);
+            validCount++;
         }
 
-        if (elements.length > limit) {
-            summaryLines.push(`  ... and ${elements.length - limit} more elements`);
+        if (elements.length > validCount) {
+            summaryLines.push(`  ... (+${elements.length - validCount} hidden/empty elements)`);
         }
 
         return summaryLines.join('\n');
@@ -715,17 +219,7 @@ Respond with JSON only, no additional text.`;
     async _askClaude(prompt, screenshotBase64 = null) {
         try {
             const content = screenshotBase64
-                ? [
-                    { type: 'text', text: prompt },
-                    {
-                        type: 'image',
-                        source: {
-                            type: 'base64',
-                            media_type: 'image/jpeg',
-                            data: screenshotBase64
-                        }
-                    }
-                ]
+                ? [{ type: 'text', text: prompt }, { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: screenshotBase64 } }]
                 : prompt;
 
             const response = await this.claude.messages.create({
@@ -734,103 +228,43 @@ Respond with JSON only, no additional text.`;
                 temperature: config.TEMPERATURE,
                 messages: [{ role: 'user', content }]
             });
-
-            const text = response.content[0].text;
-            return this._parseJsonResponse(text);
+            return this._parseJsonResponse(response.content[0].text);
         } catch (e) {
-            console.error(`❌ Claude API error: ${e.message}`);
             return { error: e.message, task_completed: false };
         }
     }
 
     async _askGemini(prompt, screenshotBase64 = null) {
-        const models = [
-            { name: this.geminiPrimaryModel, temperature: config.TEMPERATURE },
-            { name: this.geminiFallbackModel, temperature: config.TEMPERATURE }
-        ];
+        try {
+            const parts = [{ text: prompt }];
+            if (screenshotBase64) parts.push({ inlineData: { mimeType: 'image/jpeg', data: screenshotBase64 } });
 
-        for (const [index, modelConfig] of models.entries()) {
+            const result = await this.gemini.getGenerativeModel({ model: this.geminiPrimaryModel }).generateContent({
+                contents: [{ role: 'user', parts }],
+                generationConfig: { responseMimeType: "application/json" }
+            });
+            return JSON.parse(result.response.text());
+        } catch (e) {
+            console.error("Gemini Error:", e.message);
+            // Fallback
             try {
-                // Build parts array - text first, then image if provided
-                const parts = [{ text: prompt }];
-                if (screenshotBase64) {
-                    parts.push({
-                        inlineData: {
-                            mimeType: 'image/jpeg',
-                            data: screenshotBase64
-                        }
-                    });
-                }
-
-                const result = await this.gemini.models.generateContent({
-                    model: modelConfig.name,
-                    contents: [{ role: 'user', parts }],
-                    config: {
-                        systemInstruction: [
-                            "You are a UI automation agent.",
-                            "Always respond with valid JSON only, no additional text.",
-                            "Do not include markdown code blocks or any formatting - return raw JSON."
-                        ],
-                        temperature: modelConfig.temperature,
-                        maxOutputTokens: 8192
-                    }
+                const fallback = await this.gemini.getGenerativeModel({ model: this.geminiFallbackModel }).generateContent({
+                    contents: [{ role: 'user', parts: [{ text: prompt }] }] // No image in fallback to be safe
                 });
-
-                if (!result.candidates || result.candidates.length === 0) {
-                    throw new Error('No candidates in response');
-                }
-
-                const content = result.candidates[0].content;
-                const text = content.parts
-                    .filter(part => part.text)
-                    .map(part => part.text)
-                    .join('');
-
-                return this._parseJsonResponse(text);
-
-            } catch (e) {
-                console.error(`❌ Gemini model ${modelConfig.name} failed: ${e.message}`);
-
-                // If last model, return error
-                if (index === models.length - 1) {
-                    return { error: e.message, task_completed: false };
-                }
-                // Otherwise, try next model
-                console.log(`🔄 Trying fallback model: ${models[index + 1].name}`);
+                return this._parseJsonResponse(fallback.response.text());
+            } catch (err) {
+                return { error: err.message, task_completed: false };
             }
         }
-
-        return { error: 'All Gemini models failed', task_completed: false };
     }
 
     _parseJsonResponse(text) {
         try {
-            text = text.trim();
-            // Remove markdown code blocks if present
-            if (text.startsWith('```')) {
-                 const firstLineBreak = text.indexOf('\n');
-                 if (firstLineBreak !== -1) {
-                     // Remove first line (```json)
-                     text = text.substring(firstLineBreak + 1);
-                     // Remove last line (```)
-                     const lastBackticks = text.lastIndexOf('```');
-                     if (lastBackticks !== -1) {
-                         text = text.substring(0, lastBackticks);
-                     }
-                 }
-            }
+            text = text.replace(/```json/g, '').replace(/```/g, '').trim();
             return JSON.parse(text);
         } catch (e) {
-            // Try to find JSON object within text
-            const start = text.indexOf('{');
-            const end = text.lastIndexOf('}');
-            if (start >= 0 && end > start) {
-                try {
-                    return JSON.parse(text.substring(start, end + 1));
-                } catch (inner) {}
-            }
-            console.error('Failed to parse JSON:', text.substring(0, 200));
-            throw new Error('Could not parse JSON response from LLM');
+            console.error("JSON Parse Error on:", text.substring(0, 100));
+            throw new Error("Invalid JSON response from LLM");
         }
     }
 }
