@@ -10,12 +10,50 @@ const app = express();
 app.use(express.json({ limit: '50mb' }));
 app.use(cors());
 
-// Ensure logs directory exists
+// Ensure logs directory exists (UPPERCASE for API consistency)
 const fs = require('fs');
-const logsDir = path.join(__dirname, '..', 'public', 'logs');
+const logsDir = path.join(__dirname, '..', 'public', 'LOGS');
 if (!fs.existsSync(logsDir)) {
     fs.mkdirSync(logsDir, { recursive: true });
 }
+
+// Ensure screenshots directory exists
+const screenshotsDir = path.join(__dirname, '..', 'public', 'SCREENSHOTS');
+if (!fs.existsSync(screenshotsDir)) {
+    fs.mkdirSync(screenshotsDir, { recursive: true });
+}
+
+// --- GARBAGE COLLECTION (CLEANUP) ---
+const LOG_RETENTION_MS = 48 * 60 * 60 * 1000; // 48 hours
+const SCREENSHOT_RETENTION_MS = 1 * 60 * 60 * 1000; // 1 hour
+
+function cleanupDirectory(directory, maxAgeMs) {
+    fs.readdir(directory, (err, files) => {
+        if (err) {
+            console.error(`Cleanup error reading ${directory}:`, err);
+            return;
+        }
+
+        const now = Date.now();
+        files.forEach(file => {
+            const filePath = path.join(directory, file);
+            fs.stat(filePath, (err, stats) => {
+                if (err) return;
+                if (now - stats.mtimeMs > maxAgeMs) {
+                    fs.unlink(filePath, (err) => {
+                        if (!err) console.log(`🧹 GC: Deleted old file ${file}`);
+                    });
+                }
+            });
+        });
+    });
+}
+
+// Run cleanup every 10 minutes
+setInterval(() => {
+    cleanupDirectory(logsDir, LOG_RETENTION_MS);
+    cleanupDirectory(screenshotsDir, SCREENSHOT_RETENTION_MS);
+}, 10 * 60 * 1000);
 
 // Global state storage for Mission Control dashboard
 let globalState = {
@@ -58,7 +96,8 @@ const UIStateSchema = z.object({
     WindowTitle: z.string(),
     ProcessName: z.string(),
     Elements: z.array(UIElementSchema).optional().default([]),
-    Screenshot: z.string().optional().default("")
+    Screenshot: z.string().optional().default(""),
+    DebugScreenshot: z.string().optional().default("")
 });
 
 const ServerRequestSchema = z.object({
@@ -133,6 +172,23 @@ app.post('/DECIDE', async (req, res) => {
             reasoning: decision.reasoning || ''
         };
 
+        // Handle Shadow Debug Screenshot (Only in DEBUG mode)
+        let debugScreenshotUrl = null;
+        if (config.DEBUG && request.State.DebugScreenshot) {
+            try {
+                const shortId = request.ClientId.substring(0, 6);
+                const imgBuffer = Buffer.from(request.State.DebugScreenshot, 'base64');
+                const imgName = `debug_${shortId}_${Date.now()}.jpg`;
+                const imgPath = path.join(screenshotsDir, imgName);
+                fs.writeFileSync(imgPath, imgBuffer);
+                // Use UPPERCASE path for consistency
+                debugScreenshotUrl = `https://xelth.com/AGI/SCREENSHOTS/${imgName}`;
+                console.log(`📸 Shadow Debug Screenshot saved: ${debugScreenshotUrl}`);
+            } catch (err) {
+                console.error("Failed to save debug screenshot:", err.message);
+            }
+        }
+
         // 3. Handle Error from LLM Service
         if (decision.error) {
             return res.json({
@@ -183,7 +239,8 @@ app.post('/DECIDE', async (req, res) => {
             const logFileName = `${safeTaskName}_${shortId}_${dateStr}.json`;
 
             const logPath = path.join(logsDir, logFileName);
-            const logUrl = `https://xelth.com/AGI/logs/${logFileName}`;
+            // Update URL to use uppercase LOGS
+            const logUrl = `https://xelth.com/AGI/LOGS/${logFileName}`;
 
             const logEntry = {
                 timestamp: new Date().toISOString(),
@@ -250,8 +307,8 @@ app.get('/api/logs', (req, res) => {
             .filter(f => f.endsWith('.json'))
             .map(f => ({
                 name: f,
-                // Fix: Add /AGI/ prefix for Nginx routing
-                url: `/AGI/logs/${f}`,
+                // Update to uppercase LOGS
+                url: `/AGI/LOGS/${f}`,
                 time: fs.statSync(path.join(logsDir, f)).mtime
             }))
             .sort((a, b) => b.time - a.time); // Newest first

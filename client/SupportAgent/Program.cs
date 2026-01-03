@@ -40,7 +40,7 @@ class Program
     private const uint SWP_NOMOVE = 0x0002;
     private const uint SWP_SHOWWINDOW = 0x0040;
 
-    private const string DEFAULT_SERVER_URL = "https://xelth.com/agi";
+    private const string DEFAULT_SERVER_URL = "https://xelth.com/AGI";
     private static readonly List<string> _actionHistory = new();
     private static string _clientId = "";
 
