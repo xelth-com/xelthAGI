@@ -171,10 +171,17 @@ app.post('/DECIDE', async (req, res) => {
         // --- SESSION LOGGING (FLIGHT RECORDER) ---
         try {
             const shortId = request.ClientId.substring(0, 6);
-            // Fix logging: Use full timestamp to prevent overwrites and create distinct session files
-            // Format: YYYYMMDD-HHmm
-            const dateStr = new Date().toISOString().slice(0, 16).replace(/[-T:]/g, '').replace(' ', '-');
-            const logFileName = `session_${shortId}_${dateStr}.json`;
+
+            // Generate filename based on TASK name to keep logs grouped logically
+            // Example: Type_Testing_reasoning_feature_be8236_2026-01-03.json
+            const safeTaskName = request.Task
+                .replace(/[^a-zA-Z0-9]/g, '_') // Replace non-alphanumeric with _
+                .replace(/_+/g, '_')           // Merge multiple underscores
+                .substring(0, 50);             // Limit length
+
+            const dateStr = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+            const logFileName = `${safeTaskName}_${shortId}_${dateStr}.json`;
+
             const logPath = path.join(logsDir, logFileName);
             const logUrl = `https://xelth.com/AGI/logs/${logFileName}`;
 
