@@ -163,12 +163,6 @@ app.post('/DECIDE', async (req, res) => {
         console.log(`\n👤 Client: ${request.ClientId} | Task: ${request.Task}`);
 
         // 2. LLM Processing
-        // Convert Zod object to plain dict logic for LLM service
-        const screenshotLen = request.State.Screenshot ? request.State.Screenshot.length : 0;
-        if (screenshotLen > 0) {
-            console.log(`📷 Screenshot received: ${Math.round(screenshotLen/1024)}KB`);
-        }
-
         const uiStateDict = {
             WindowTitle: request.State.WindowTitle,
             ProcessName: request.State.ProcessName,
