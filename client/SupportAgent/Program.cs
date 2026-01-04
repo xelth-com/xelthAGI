@@ -91,6 +91,7 @@ class Program
     [STAThread] // Required for Windows Forms
     static async Task<int> Main(string[] args)
     {
+      try {
         Console.WriteLine("╔════════════════════════════════════════════╗");
         Console.WriteLine("║   Support Agent - C# + FlaUI Client       ║");
         Console.WriteLine("╚════════════════════════════════════════════╝\n");
@@ -489,6 +490,14 @@ class Program
         }
 
         return 0;
+      }
+      catch (Exception ex)
+      {
+          Console.ForegroundColor = ConsoleColor.Red;
+          Console.WriteLine($"\n❌ FATAL CRASH: {ex}");
+          Console.ResetColor();
+          return -1;
+      }
     }
 
     // Aggressively force window to foreground (bypasses Windows restrictions)

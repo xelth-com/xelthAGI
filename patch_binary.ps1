@@ -1,3 +1,0 @@
-Set-Location 'C:\Users\Dmytro\xelthAGI\server'
-$token = 'xlt_mjzkb0k5_myh40xw5_fde53ff1b41231234e78433161617d19_6bbda64b01293ea08a25b24b7cce7e17a19cbd43c6a7685d534794c5110703194d8b4beb85e4f95d8f2fe601248d6d73543d02a55c3cd31a6f65053e2ca25f1f449c138872a64a3d5b4147a8af3aab69_63cdee19ca58e3e9129e0f8c33e4340de404fdde7e8d1555a81e8290c25ea2b5'
-Invoke-Expression "node src/patcher.js 'C:\Users\Dmytro\xelthAGI\client\SupportAgent\publish\SupportAgent.exe' '$token'"
