@@ -59,6 +59,7 @@ const logsList = document.getElementById('logsList');
 const debugToggle = document.getElementById('debugToggle');
 const downloadBtn = document.getElementById('downloadBtn');
 const shutdownBtn = document.getElementById('shutdownBtn');
+const appTitle = document.getElementById('appTitle');
 
 // Download Client Handler
 if (downloadBtn) {
@@ -124,6 +125,12 @@ async function updateDashboard() {
         updateTask(state.task);
         updateStats(state);
         updateThoughts(state.lastDecision);
+
+        // Update Header Title with Client ID if available
+        if (state.clientId && state.clientId !== 'unknown') {
+            appTitle.textContent = `Client: ${state.clientId}`;
+            appTitle.style.fontFamily = 'monospace';
+        }
 
         // Sync debug toggle with server state
         if (state.serverDebugMode !== undefined && document.activeElement !== debugToggle) {

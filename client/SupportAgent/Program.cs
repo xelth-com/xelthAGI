@@ -92,6 +92,10 @@ class Program
     static async Task<int> Main(string[] args)
     {
       try {
+        // FORCE UTF-8 ENCODING for correct Unicode handling (Cyrillic, Umlauts, etc.)
+        Console.OutputEncoding = Encoding.UTF8;
+        Console.InputEncoding = Encoding.UTF8;
+
         Console.WriteLine("╔════════════════════════════════════════════╗");
         Console.WriteLine("║   Support Agent - C# + FlaUI Client       ║");
         Console.WriteLine("╚════════════════════════════════════════════╝\n");
@@ -108,11 +112,39 @@ class Program
 
         // targetApp is now optional. If empty, we attach to active window.
 
+        // --- INTERACTIVE MODE ---
         if (string.IsNullOrEmpty(task))
         {
-            Console.WriteLine("Error: --task parameter is required");
-            return 1;
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine("\n[Interactive Mode]");
+            Console.ResetColor();
+
+            Console.WriteLine($"Server: {serverUrl}");
+
+            Console.ForegroundColor = ConsoleColor.Green;
+            Console.Write("👉 Enter Task: ");
+            Console.ResetColor();
+            task = Console.ReadLine()?.Trim();
+
+            if (string.IsNullOrEmpty(task))
+            {
+                Console.WriteLine("No task provided. Exiting.");
+                return 0;
+            }
+
+            // Ask for Auto-Approve in interactive mode
+            if (!unsafeMode)
+            {
+                Console.Write("Enable Auto-Approve (Unsafe Mode)? [y/N]: ");
+                var k = Console.ReadKey();
+                Console.WriteLine();
+                if (k.Key == ConsoleKey.Y)
+                {
+                    unsafeMode = true;
+                }
+            }
         }
+        // ------------------------
 
         if (unsafeMode)
         {
