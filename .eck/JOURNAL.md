@@ -1,5 +1,52 @@
 # Development Journal
 
+## v1.4 - Authentication & Dashboard Fixes (2026-01-04)
+
+---
+type: fix
+scope: auth, dashboard
+summary: Fixed critical authentication bugs and Mission Control dashboard access
+date: 2026-01-04
+---
+
+### Authentication System Fixes
+- **Root Cause**: C# client was reading token from non-existent embedded resources instead of appended binary data
+- **Token Reading**: Changed `AuthConfig.cs` to read from end of executable file (appended bytes)
+- **Placeholder Alignment**: Fixed mismatch between injection (515 chars) and reader (500 chars)
+- **Result**: Client now successfully authenticates with XLT tokens
+
+### Mission Control Dashboard Access
+- **Problem**: Dashboard couldn't fetch `/API/STATE` due to HTTP 401 (authentication required)
+- **Solution**: Moved `/API/STATE` endpoint before authentication middleware
+- **Public Access**: Dashboard can now monitor agents without authentication
+- **Cache Busting**: Added versioned script loading to prevent browser cache issues
+
+### Technical Changes
+- `client/SupportAgent/Models/AuthConfig.cs` - Read token from exe file end (line 9-45)
+- `client/SupportAgent/Scripts/inject_token_slot.ps1` - Fixed to 500-char placeholder (line 17)
+- `server/src/patcher.js` - Updated to 500-char placeholder (line 5)
+- `server/src/index.js` - Moved `/API/STATE` before auth middleware
+- `server/public/app.js` - Updated to fetch from `API/STATE`
+- `server/public/index.html` - Added cache-busting parameter
+
+### Files Modified
+- `client/SupportAgent/Program.cs` - Added global try-catch for crash debugging
+- `client/SupportAgent/debug_run.bat` - Created debug script for logging
+
+### Testing Results
+- ✅ Token injection working (500 chars)
+- ✅ Token reading from binary working
+- ✅ Server authentication successful
+- ✅ Dashboard displays agent status in real-time
+- ✅ ONLINE/OFFLINE status updates correctly
+
+### Cleanup
+- Removed 13 obsolete PowerShell scripts (check_*.ps1, run_*.ps1, etc.)
+- Simplified build/test workflow
+- Reduced repository clutter
+
+---
+
 ## v1.3 Release - Security, OCR, and Learning (2026-01-03)
 
 ---

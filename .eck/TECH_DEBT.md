@@ -74,6 +74,26 @@ private const int RETRY_DELAY_MS = 1000;
 
 ## Resolved
 
+### ✅ Token Reading from Embedded Resources (AuthConfig.cs)
+**Fixed:** 2026-01-04
+**Problem:** Client was trying to read token from non-existent embedded resources, causing authentication failures
+**Solution:** Changed `AuthConfig.cs` to read token from end of executable file (appended binary data)
+**Details:**
+- Fixed placeholder size mismatch (515 vs 500 chars)
+- Updated `ReadTokenBytes()` to use `FileStream` instead of `GetManifestResourceStream`
+- Token now successfully extracted from binary after patching
+**Impact:** Client authentication now works correctly with XLT token system
+
+### ✅ Mission Control Dashboard Authentication Requirement
+**Fixed:** 2026-01-04
+**Problem:** Dashboard couldn't access `/API/STATE` endpoint (HTTP 401 errors)
+**Solution:** Moved `/API/STATE` endpoint definition before authentication middleware
+**Details:**
+- `/API/STATE` is now public (no auth required) for dashboard monitoring
+- Other `/API/*` endpoints remain protected
+- Added cache-busting parameter to prevent browser caching issues
+**Impact:** Dashboard can now monitor agents in real-time without authentication
+
 ### ✅ No timeout for long-running OS commands
 **Fixed:** 2026-01-02
 **Solution:** Added `WaitForInputIdle(30000)` to `RunProcess` method

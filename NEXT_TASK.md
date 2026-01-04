@@ -1,12 +1,21 @@
-# STATUS: STABLE PRODUCTION (v1.3)
+# STATUS: STABLE PRODUCTION (v1.4)
 
 ## ✅ COMPLETED FEATURES (Jan 2026)
+
+### 🔧 Bug Fixes & Stability (v1.4 - Jan 4)
+- ✅ **Authentication Fix**: Client now correctly reads XLT tokens from binary (fixed embedded resource bug).
+- ✅ **Token Alignment**: Fixed placeholder size mismatch (515→500 chars) preventing auth failures.
+- ✅ **Dashboard Access**: Mission Control `/API/STATE` endpoint now public (no auth required).
+- ✅ **Real-time Monitoring**: Dashboard displays agent status, tasks, and screenshots live.
+- ✅ **Crash Debugging**: Added global try-catch wrapper and debug logging tools.
+- ✅ **Code Cleanup**: Removed 13 obsolete PowerShell scripts, streamlined workflow.
 
 ### 🛡️ Security & Deployment (v1.3)
 - ✅ **Embedded Access Tokens**: Binary patching system for secure, config-less client distribution.
 - ✅ **One-Click Download**: Dashboard button generates unique, secured EXE files on the fly.
 - ✅ **Token Hygiene**: Server validates `xlt_...` tokens via Bearer auth.
 - ✅ **XLT Protocol**: Full AES-256-CBC encryption + HMAC-SHA256 signature for stateless auth.
+- ✅ **Client Hardening**: Fixed FlaUI crashes on terminal windows using Win32 API fallback.
 
 ### 👁️ Vision & Perception (v1.3)
 - ✅ **Windows Media OCR**: Integrated native Windows 10/11 OCR engine into C# client.
