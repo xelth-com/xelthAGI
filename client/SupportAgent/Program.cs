@@ -176,6 +176,9 @@ class Program
         }
 
         Console.WriteLine($"Task: {task}");
+
+        // STARTUP NOTIFICATION (non-blocking)
+        ShowStartupNotification(task);
         Console.WriteLine("Starting automation...\n");
 
         var maxSteps = 20;
@@ -264,12 +267,21 @@ class Program
                 if (response == null || !response.Success)
                 {
                     Console.WriteLine("  ❌ Server error or no response");
+
+                    // CONNECTION LOSS - Ask user if they want to shut down
+                    if (ShowConnectionLostDialog())
+                    {
+                        Console.WriteLine("  🛑 User requested shutdown");
+                        return 0;
+                    }
                     break;
                 }
 
                 if (response.TaskCompleted)
                 {
                     Console.WriteLine("\n✅ Task completed successfully!");
+                    ShowCompletionNotification(task, "Task completed successfully");
+                    await Task.Delay(2000); // Brief pause to show notification
                     return 0;
                 }
 
@@ -500,6 +512,13 @@ class Program
             Console.ForegroundColor = ConsoleColor.Yellow;
             Console.WriteLine("⚠️  Reached maximum steps limit");
             Console.ResetColor();
+
+            // TIMEOUT - Ask user if they want to shut down
+            if (ShowTimeoutDialog())
+            {
+                Console.WriteLine("  🛑 User requested shutdown");
+                return 0;
+            }
         }
 
         return 0;
@@ -761,5 +780,220 @@ class Program
         {
             return "temp-" + Guid.NewGuid().ToString("N");
         }
+    }
+
+    // STARTUP NOTIFICATION (Non-blocking)
+    private static void ShowStartupNotification(string task)
+    {
+        Task.Run(() =>
+        {
+            Form notificationForm = new Form()
+            {
+                Width = 500,
+                Height = 180,
+                FormBorderStyle = FormBorderStyle.FixedDialog,
+                Text = "Agent Started",
+                StartPosition = FormStartPosition.CenterScreen,
+                TopMost = true,
+                MaximizeBox = false,
+                MinimizeBox = false,
+                ShowInTaskbar = true
+            };
+
+            Label messageLabel = new Label()
+            {
+                Left = 20,
+                Top = 20,
+                Width = 440,
+                Height = 80,
+                Text = $"Hello! I'm your agent.\n\nTask: {task}\n\nStarting work now...",
+                Font = new Font("Segoe UI", 10)
+            };
+
+            Button okButton = new Button()
+            {
+                Text = "OK",
+                Left = 200,
+                Width = 100,
+                Top = 110,
+                DialogResult = DialogResult.OK
+            };
+
+            notificationForm.Controls.Add(messageLabel);
+            notificationForm.Controls.Add(okButton);
+            notificationForm.AcceptButton = okButton;
+
+            // Auto-close after 3 seconds
+            System.Threading.Timer autoClose = null;
+            autoClose = new System.Threading.Timer(_ =>
+            {
+                notificationForm.Invoke((Action)(() => notificationForm.Close()));
+                autoClose?.Dispose();
+            }, null, 3000, Timeout.Infinite);
+
+            notificationForm.ShowDialog();
+        });
+    }
+
+    // COMPLETION NOTIFICATION (Non-blocking)
+    private static void ShowCompletionNotification(string task, string result)
+    {
+        Form notificationForm = new Form()
+        {
+            Width = 500,
+            Height = 200,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            Text = "Task Completed",
+            StartPosition = FormStartPosition.CenterScreen,
+            TopMost = true,
+            MaximizeBox = false,
+            MinimizeBox = false,
+            ShowInTaskbar = true
+        };
+
+        Label messageLabel = new Label()
+        {
+            Left = 20,
+            Top = 20,
+            Width = 440,
+            Height = 100,
+            Text = $"Task: {task}\n\nResult: {result}\n\nThank you! Goodbye.",
+            Font = new Font("Segoe UI", 10)
+        };
+
+        Button okButton = new Button()
+        {
+            Text = "OK",
+            Left = 200,
+            Width = 100,
+            Top = 130,
+            DialogResult = DialogResult.OK
+        };
+
+        notificationForm.Controls.Add(messageLabel);
+        notificationForm.Controls.Add(okButton);
+        notificationForm.AcceptButton = okButton;
+
+        // Auto-close after 3 seconds
+        System.Threading.Timer autoClose = null;
+        autoClose = new System.Threading.Timer(_ =>
+        {
+            notificationForm.Invoke((Action)(() => notificationForm.Close()));
+            autoClose?.Dispose();
+        }, null, 3000, Timeout.Infinite);
+
+        notificationForm.ShowDialog();
+    }
+
+    // CONNECTION LOST DIALOG (Blocking)
+    private static bool ShowConnectionLostDialog()
+    {
+        Form dialogForm = new Form()
+        {
+            Width = 500,
+            Height = 200,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            Text = "Connection Lost",
+            StartPosition = FormStartPosition.CenterScreen,
+            TopMost = true,
+            MaximizeBox = false,
+            MinimizeBox = false,
+            ShowInTaskbar = true,
+            ControlBox = false
+        };
+
+        Label messageLabel = new Label()
+        {
+            Left = 20,
+            Top = 20,
+            Width = 440,
+            Height = 80,
+            Text = "I've lost connection to the server or encountered an error.\n\nWould you like to shut me down?",
+            Font = new Font("Segoe UI", 10)
+        };
+
+        Button shutdownButton = new Button()
+        {
+            Text = "Shutdown",
+            Left = 150,
+            Width = 100,
+            Top = 120,
+            DialogResult = DialogResult.Yes,
+            BackColor = Color.LightCoral
+        };
+
+        Button retryButton = new Button()
+        {
+            Text = "Retry",
+            Left = 260,
+            Width = 100,
+            Top = 120,
+            DialogResult = DialogResult.No
+        };
+
+        dialogForm.Controls.Add(messageLabel);
+        dialogForm.Controls.Add(shutdownButton);
+        dialogForm.Controls.Add(retryButton);
+
+        ForceWindowToForeground(dialogForm.Handle);
+        DialogResult result = dialogForm.ShowDialog();
+
+        return result == DialogResult.Yes; // true = shutdown
+    }
+
+    // TIMEOUT DIALOG (Blocking)
+    private static bool ShowTimeoutDialog()
+    {
+        Form dialogForm = new Form()
+        {
+            Width = 500,
+            Height = 200,
+            FormBorderStyle = FormBorderStyle.FixedDialog,
+            Text = "Maximum Steps Reached",
+            StartPosition = FormStartPosition.CenterScreen,
+            TopMost = true,
+            MaximizeBox = false,
+            MinimizeBox = false,
+            ShowInTaskbar = true,
+            ControlBox = false
+        };
+
+        Label messageLabel = new Label()
+        {
+            Left = 20,
+            Top = 20,
+            Width = 440,
+            Height = 80,
+            Text = "I've reached the maximum number of steps.\n\nThe task may not be complete. Shut down?",
+            Font = new Font("Segoe UI", 10)
+        };
+
+        Button shutdownButton = new Button()
+        {
+            Text = "Shutdown",
+            Left = 150,
+            Width = 100,
+            Top = 120,
+            DialogResult = DialogResult.Yes,
+            BackColor = Color.LightCoral
+        };
+
+        Button continueButton = new Button()
+        {
+            Text = "Continue Anyway",
+            Left = 260,
+            Width = 120,
+            Top = 120,
+            DialogResult = DialogResult.No
+        };
+
+        dialogForm.Controls.Add(messageLabel);
+        dialogForm.Controls.Add(shutdownButton);
+        dialogForm.Controls.Add(continueButton);
+
+        ForceWindowToForeground(dialogForm.Handle);
+        DialogResult result = dialogForm.ShowDialog();
+
+        return result == DialogResult.Yes; // true = shutdown
     }
 }
