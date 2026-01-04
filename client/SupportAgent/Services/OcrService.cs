@@ -18,9 +18,9 @@ public class OcrService
 
     /// <summary>
     /// Gets whether OCR is supported on this system.
-    /// Requires Windows 10 version 1904 (May 2020 Update) or later.
+    /// Windows 10 version 1904+ required.
     /// </summary>
-    public bool IsSupported => OcrEngine.IsAvailableProfileSupported;
+    public bool IsSupported => OcrEngine.TryCreateFromUserProfileLanguages() != null;
 
     public OcrService()
     {

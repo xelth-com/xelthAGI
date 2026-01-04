@@ -1,9 +1,13 @@
 using SupportAgent.Models;
 using SupportAgent.Services;
-using System.Windows.Forms;
 using System.Drawing;
 using System.Runtime.InteropServices;
 using System.Diagnostics;
+using System.Text;
+using FlaUI.Core;
+using WinFormsLabel = System.Windows.Forms.Label;
+using WinFormsButton = System.Windows.Forms.Button;
+using WinFormsTextBox = System.Windows.Forms.TextBox;
 
 namespace SupportAgent;
 
@@ -34,6 +38,36 @@ class Program
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool FlashWindow(IntPtr hWnd, bool bInvert);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern int GetWindowText(IntPtr hWnd, StringBuilder lpString, int nMaxCount);
+
+    private static string GetWindowTitleSafe(FlaUI.Core.AutomationElements.Window window)
+    {
+        try
+        {
+            // Try FlaUI's Name property first
+            return window.Name;
+        }
+        catch (Exception)
+        {
+            // Fallback: Get window title via Windows API
+            try
+            {
+                var handle = window.Properties.NativeWindowHandle.ValueOrDefault;
+                if (handle != IntPtr.Zero)
+                {
+                    var sb = new StringBuilder(256);
+                    GetWindowText(handle, sb, sb.Capacity);
+                    var title = sb.ToString();
+                    if (!string.IsNullOrEmpty(title))
+                        return title;
+                }
+            }
+            catch { }
+            return "[Unknown Window]";
+        }
+    }
 
     private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
     private const uint SWP_NOSIZE = 0x0001;
@@ -136,7 +170,8 @@ class Program
 
         if (automationService.CurrentWindow != null)
         {
-            Console.WriteLine($"✅ Target window: {automationService.CurrentWindow.Name}\n");
+            string windowName = GetWindowTitleSafe(automationService.CurrentWindow);
+            Console.WriteLine($"✅ Target window: {windowName}\n");
         }
 
         Console.WriteLine($"Task: {task}");

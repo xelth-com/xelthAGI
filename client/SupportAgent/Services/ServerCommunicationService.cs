@@ -1,6 +1,7 @@
 using Newtonsoft.Json;
 using SupportAgent.Models;
-using System.Net.Http.Headers; // Required for AuthenticationHeaderValue
+using System.Net;
+using System.Net.Http.Headers;
 using System.Text;
 
 namespace SupportAgent.Services;
@@ -13,34 +14,33 @@ public class ServerCommunicationService
 
     public ServerCommunicationService(string serverUrl, string clientId)
     {
-        _serverUrl = serverUrl;
+        // Enable modern TLS protocols
+        ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12 | SecurityProtocolType.Tls13;
+
+        _serverUrl = serverUrl.TrimEnd('/'); // Ensure no trailing slash
         _clientId = clientId;
+
         _httpClient = new HttpClient
         {
             Timeout = TimeSpan.FromSeconds(30)
         };
 
         // --- AUTHENTICATION INJECTION ---
-        // Read the embedded token from the binary itself
         var token = AuthConfig.GetToken();
-
-        // If patched, send as Bearer token
         if (token != "DEV_TOKEN_UNPATCHED")
         {
-            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            // Ensure token is ASCII-safe before adding to header
+            var asciiToken = Encoding.ASCII.GetString(Encoding.ASCII.GetBytes(token));
+            _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", asciiToken);
         }
 
-        // Always send ClientID as a header for logging
-        _httpClient.DefaultRequestHeaders.Add("X-Client-ID", _clientId);
+        // Ensure Client ID is ASCII-safe
+        var asciiClientId = Encoding.ASCII.GetString(Encoding.ASCII.GetBytes(_clientId));
+        _httpClient.DefaultRequestHeaders.Add("X-Client-ID", asciiClientId);
     }
 
-    /// <summary>
-    /// Отправляет состояние UI на сервер и получает команду (с retry logic)
-    /// </summary>
     public async Task<ServerResponse?> GetNextCommand(UIState state, string task, List<string> history, int maxRetries = 3)
     {
-        Exception? lastException = null;
-
         for (int attempt = 0; attempt < maxRetries; attempt++)
         {
             try
@@ -56,74 +56,58 @@ public class ServerCommunicationService
                 var json = JsonConvert.SerializeObject(request);
                 var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-                var response = await _httpClient.PostAsync($"{_serverUrl}/decide", content);
+                // UPPERCASE ENDPOINT: /DECIDE
+                var response = await _httpClient.PostAsync($"{_serverUrl}/DECIDE", content);
 
-                // AUTH ERROR HANDLING
-                if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized ||
-                    response.StatusCode == System.Net.HttpStatusCode.Forbidden)
+                if (response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.Forbidden)
                 {
-                    Console.WriteLine("\n AUTH ERROR: Server rejected the embedded token.");
-                    Console.WriteLine("   Please download a fresh copy of the agent from the dashboard.\n");
+                    Console.WriteLine("\n  [X] AUTH ERROR: Server rejected the token.");
                     return null;
                 }
 
                 response.EnsureSuccessStatusCode();
-
                 var responseJson = await response.Content.ReadAsStringAsync();
-
-                // Success! Log if this was a retry
-                if (attempt > 0)
-                {
-                    Console.WriteLine($"  ✅ Server request succeeded on attempt {attempt + 1}/{maxRetries}");
-                }
 
                 return JsonConvert.DeserializeObject<ServerResponse>(responseJson);
             }
-            catch (HttpRequestException ex)
-            {
-                lastException = ex;
-                if (attempt < maxRetries - 1)
-                {
-                    // Exponential backoff: 1s, 2s, 4s
-                    int delayMs = (int)Math.Pow(2, attempt) * 1000;
-                    Console.WriteLine($"  ⚠️  Server request failed (attempt {attempt + 1}/{maxRetries}), retrying in {delayMs/1000}s...");
-                    await Task.Delay(delayMs);
-                    continue;
-                }
-                Console.WriteLine($"Server communication error after {maxRetries} attempts: {ex.Message}");
-                return null;
-            }
             catch (Exception ex)
             {
-                lastException = ex;
                 if (attempt < maxRetries - 1)
                 {
-                    // Exponential backoff: 1s, 2s, 4s
-                    int delayMs = (int)Math.Pow(2, attempt) * 1000;
-                    Console.WriteLine($"  ⚠️  Request error (attempt {attempt + 1}/{maxRetries}), retrying in {delayMs/1000}s...");
-                    await Task.Delay(delayMs);
+                    await Task.Delay(1000 * (attempt + 1));
                     continue;
                 }
-                Console.WriteLine($"Error after {maxRetries} attempts: {ex.Message}");
+                Console.WriteLine($"  [X] Error getting command: {ex.Message}");
                 return null;
             }
         }
-
         return null;
     }
 
-    /// <summary>
-    /// Проверяет доступность сервера
-    /// </summary>
     public async Task<bool> IsServerAvailable()
     {
         try
         {
-            var response = await _httpClient.GetAsync($"{_serverUrl}/health");
-            return response.IsSuccessStatusCode;
+            // UPPERCASE ENDPOINT: /HEALTH
+            // Logging added to debug connection issues
+            Console.WriteLine($"  [?] Connecting to: {_serverUrl}/HEALTH");
+
+            var response = await _httpClient.GetAsync($"{_serverUrl}/HEALTH");
+
+            if (!response.IsSuccessStatusCode)
+            {
+                Console.WriteLine($"  [X] HTTP Error: {response.StatusCode}");
+                return false;
+            }
+            return true;
         }
-        catch
+        catch (Exception ex)
         {
+            Console.WriteLine($"  [X] Connection Exception: {ex.Message}");
+            if (ex.InnerException != null)
+            {
+                Console.WriteLine($"     Inner: {ex.InnerException.Message}");
+            }
             return false;
         }
     }
