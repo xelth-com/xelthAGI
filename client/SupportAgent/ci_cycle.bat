@@ -24,17 +24,28 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
-REM 3. GENERATE TOKEN
-echo [2/4] Minting XLT Token...
+REM 3. GENERATE TOKENS (Agent + Console)
+echo [2/4] Minting XLT Tokens...
 cd ..\..\server
-for /f "delims=" %%i in ('node scripts/generate_dev_token.js') do set TOKEN=%%i
+node scripts/generate_dev_token.js > temp_tokens.txt 2>&1
+for /f "delims=" %%i in (temp_tokens.txt) do (
+    echo %%i | findstr /B "CONSOLE:" >nul
+    if !errorlevel! == 0 (
+        set "LINE=%%i"
+        set "CONSOLE_TOKEN=!LINE:~8!"
+    ) else (
+        set "TOKEN=%%i"
+    )
+)
+del temp_tokens.txt
 cd ..\client\SupportAgent
 
 if "!TOKEN!"=="" (
-    echo ERROR: Token generation failed.
+    echo ERROR: Agent token generation failed.
     exit /b 1
 )
-echo    Token Generated (Length: !TOKEN_LENGTH!)
+echo    Agent Token Generated
+echo    Console Token Generated
 
 REM 4. PATCH
 echo [3/4] Patching Binary...
@@ -44,13 +55,20 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
+echo.
+echo ========================================
+echo    CONSOLE URL (Read-Only):
+echo    https://xelth.com/AGI/?token=!CONSOLE_TOKEN!
+echo ========================================
+echo.
+
 REM 5. RUN
 echo [4/4] Running Client Test...
 echo    Target: https://xelth.com/AGI
 echo.
 
 REM Run client against PROD server
-publish\SupportAgent.exe --server "https://xelth.com/AGI" --task "XLT Prod Integration Test"
+publish\SupportAgent.exe --server "https://xelth.com/AGI" --task "XLT Prod Integration Test" --auto-approve
 
 echo.
 echo [TEST COMPLETE]

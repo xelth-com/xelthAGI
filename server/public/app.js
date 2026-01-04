@@ -5,6 +5,43 @@ const POLL_INTERVAL = 2000;
 let previousHistoryLength = 0;
 let currentSessionName = '';
 let currentStepCount = 0;
+let authToken = null; // Console view token
+
+// Extract token from URL or localStorage
+function initializeAuth() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const tokenFromUrl = urlParams.get('token');
+
+    if (tokenFromUrl) {
+        // Save token to localStorage
+        localStorage.setItem('consoleToken', tokenFromUrl);
+        authToken = tokenFromUrl;
+        // Clean URL (remove token from address bar for security)
+        window.history.replaceState({}, document.title, window.location.pathname);
+    } else {
+        // Try to load from localStorage
+        authToken = localStorage.getItem('consoleToken');
+    }
+
+    if (!authToken) {
+        // No token available - show error
+        document.body.innerHTML = `
+            <div style="display:flex;justify-content:center;align-items:center;height:100vh;background:#0a0a0f;color:#fff;font-family:monospace;text-align:center">
+                <div>
+                    <h1>🔒 Authentication Required</h1>
+                    <p>Please access this dashboard using the URL provided by the agent:</p>
+                    <code style="background:#1a1a1f;padding:10px;display:inline-block;margin-top:10px">
+                        https://xelth.com/AGI/?token=YOUR_CONSOLE_TOKEN
+                    </code>
+                </div>
+            </div>
+        `;
+        throw new Error('No authentication token');
+    }
+}
+
+// Initialize auth on page load
+initializeAuth();
 
 // DOM Elements
 const statusDot = document.getElementById('statusDot');
@@ -34,7 +71,10 @@ debugToggle.addEventListener('change', async (e) => {
     try {
         const response = await fetch('API/SETTINGS', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+            },
             body: JSON.stringify({ debug: e.target.checked })
         });
         const data = await response.json();
@@ -49,7 +89,9 @@ debugToggle.addEventListener('change', async (e) => {
 // Fetch and update dashboard state (UPPERCASE API)
 async function updateDashboard() {
     try {
-        const response = await fetch('API/STATE');
+        const response = await fetch('API/STATE', {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
         const state = await response.json();
@@ -219,7 +261,9 @@ function updateHistory(history) {
 // Update Logs List (UPPERCASE API)
 async function updateLogs() {
     try {
-        const response = await fetch('API/LOGS');
+        const response = await fetch('API/LOGS', {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
         if (!response.ok) return;
         const logs = await response.json();
 

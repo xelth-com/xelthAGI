@@ -288,13 +288,13 @@ class Program
                     Console.Beep();
                     Console.ForegroundColor = ConsoleColor.Yellow;
                     Console.WriteLine($"\n  🤝 HUMAN ASSISTANCE REQUESTED:");
-                    Console.WriteLine($"  {response.Command.Message}");
+                    Console.WriteLine($"  {response.Command.Text}");
                     Console.ResetColor();
 
                     // Open GUI Dialog (Blocking)
                     string userInput = ShowInputDialog(
                         "AI Agent Needs Help",
-                        response.Command.Message
+                        response.Command.Text
                     );
 
                     // Log response

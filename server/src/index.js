@@ -38,9 +38,18 @@ const authenticate = (req, res, next) => {
     next();
 };
 
+// Role-based authorization: block console tokens from /DECIDE
+const requireAgentRole = (req, res, next) => {
+    if (req.authClient && req.authClient.role === 'view') {
+        console.warn(`Blocked console token from /DECIDE: ${req.authClient.id}`);
+        return res.status(403).json({ Success: false, Error: "Console tokens cannot execute commands" });
+    }
+    next();
+};
+
 // Protect the brain
-app.use('/DECIDE', authenticate);
-app.use('/API', authenticate);
+app.use('/DECIDE', authenticate, requireAgentRole); // Agent tokens only
+app.use('/API', authenticate); // Both agent and console tokens
 
 // Ensure logs directory exists (UPPERCASE for API consistency)
 const fs = require('fs');
@@ -98,27 +107,35 @@ setInterval(() => {
     cleanupDirectory(screenshotsDir, SCREENSHOT_RETENTION_MS);
 }, 10 * 60 * 1000);
 
-// Global state storage for Mission Control dashboard
-let globalState = {
-    lastSeen: null,
-    clientId: 'unknown',
-    sessionName: '', // Added for frontend URL construction
-    uiState: {
-        WindowTitle: '',
-        ProcessName: '',
-        Elements: []
-    },
-    task: '',
-    history: [],
-    lastDecision: {
-        action: '',
-        message: '',
-        reasoning: ''
-    },
-    screenshot: null, // Agent's cropped vision
-    isOnline: false,
-    totalActions: 0
-};
+// Per-client state storage for Mission Control dashboard
+// Each client has isolated state, no cross-client access
+const clientStates = new Map();
+
+function getOrCreateClientState(clientId) {
+    if (!clientStates.has(clientId)) {
+        clientStates.set(clientId, {
+            lastSeen: null,
+            clientId: clientId,
+            sessionName: '',
+            uiState: {
+                WindowTitle: '',
+                ProcessName: '',
+                Elements: []
+            },
+            task: '',
+            history: [],
+            lastDecision: {
+                action: '',
+                message: '',
+                reasoning: ''
+            },
+            screenshot: null,
+            isOnline: false,
+            totalActions: 0
+        });
+    }
+    return clientStates.get(clientId);
+}
 
 // --- Zod Models (Matching previous Pydantic models) ---
 
@@ -209,17 +226,18 @@ app.post('/DECIDE', async (req, res) => {
 
         const request = parseResult.data;
 
-        // Update global state for Mission Control
-        globalState.lastSeen = new Date().toISOString();
-        globalState.clientId = request.ClientId;
-        globalState.task = request.Task;
-        globalState.history = request.History || [];
+        // Update per-client state for Mission Control (isolated)
+        const clientState = getOrCreateClientState(request.ClientId);
+        clientState.lastSeen = new Date().toISOString();
+        clientState.clientId = request.ClientId;
+        clientState.task = request.Task;
+        clientState.history = request.History || [];
         // Keep previous screenshot if new one is empty
         if (request.State.Screenshot) {
-            globalState.screenshot = request.State.Screenshot;
+            clientState.screenshot = request.State.Screenshot;
         }
-        globalState.isOnline = true;
-        globalState.totalActions = request.History ? request.History.length : 0;
+        clientState.isOnline = true;
+        clientState.totalActions = request.History ? request.History.length : 0;
 
         // Log Client ID
         const authInfo = req.authClient ? `[Auth: ${req.authClient.token.substring(0,5)}...]` : '[No Auth]';
@@ -239,9 +257,9 @@ app.post('/DECIDE', async (req, res) => {
             request.History
         );
 
-        // Update global state with UI state and decision
-        globalState.uiState = uiStateDict;
-        globalState.lastDecision = {
+        // Update per-client state with UI state and decision
+        clientState.uiState = uiStateDict;
+        clientState.lastDecision = {
             action: decision.action || '',
             message: decision.message || '',
             reasoning: decision.reasoning || ''
@@ -256,8 +274,8 @@ app.post('/DECIDE', async (req, res) => {
         const dateStr = new Date().toISOString().slice(0, 10);
         const sessionName = `${safeTaskName}_${shortId}_${dateStr}`;
 
-        // Update global state
-        globalState.sessionName = sessionName;
+        // Update per-client state
+        clientState.sessionName = sessionName;
 
         // Handle Shadow Debug Screenshot (Only in DEBUG mode)
         let debugScreenshotUrl = null;
@@ -382,16 +400,21 @@ app.post('/DECIDE', async (req, res) => {
 });
 
 // Mission Control API - Get current agent state (UPPERCASE)
+// Returns ONLY the authenticated client's state (no cross-client access)
 app.get('/API/STATE', (req, res) => {
+    // Get the client ID from the authenticated token
+    const clientId = req.authClient.id;
+    const clientState = getOrCreateClientState(clientId);
+
     // Mark as offline if last seen more than 30 seconds ago
-    if (globalState.lastSeen) {
-        const timeSinceLastSeen = Date.now() - new Date(globalState.lastSeen).getTime();
-        globalState.isOnline = timeSinceLastSeen < 30000; // 30 seconds
+    if (clientState.lastSeen) {
+        const timeSinceLastSeen = Date.now() - new Date(clientState.lastSeen).getTime();
+        clientState.isOnline = timeSinceLastSeen < 30000; // 30 seconds
     }
 
     // Inject current server debug status
     const responseWithConfig = {
-        ...globalState,
+        ...clientState,
         serverDebugMode: config.DEBUG
     };
 

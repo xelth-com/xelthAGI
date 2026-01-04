@@ -26,8 +26,9 @@ class AuthService {
 
     /**
      * Create encrypted token (XLT)
-     * @param {Object} payloadData - Data { cid, org, role }
+     * @param {Object} payloadData - Data { cid, role: 'agent' | 'view' }
      * @param {number} expiresInMinutes - Lifetime in minutes
+     * role: 'agent' = full access, 'view' = console read-only
      */
     createToken(payloadData, expiresInMinutes = 60 * 24 * 365) { // Default 1 year for dev
         const now = Date.now();
@@ -115,8 +116,10 @@ class AuthService {
 
             // Return client object in format expected by app
             return {
-                token: token, // token itself as ID
-                payload: payload, // decrypted data
+                id: payload.cid,      // Client ID from payload
+                token: token,         // token itself
+                payload: payload,     // decrypted data
+                role: payload.role || 'agent', // 'agent' or 'view'
                 created_at: new Date(genTime).toISOString(),
                 status: 'active'
             };
