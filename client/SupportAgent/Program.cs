@@ -310,6 +310,19 @@ class Program
                 if (response.Command != null)
                 {
                     var cmd = response.Command;
+
+                    // --- REMOTE SHUTDOWN HANDLER ---
+                    if (cmd.Action.ToLower() == "shutdown")
+                    {
+                        Console.Beep();
+                        Console.ForegroundColor = ConsoleColor.Magenta;
+                        Console.WriteLine($"\n🛑 REMOTE SHUTDOWN RECEIVED");
+                        Console.WriteLine($"   Reason: {cmd.Message}");
+                        Console.ResetColor();
+                        return 0; // Graceful exit
+                    }
+                    // -------------------------------
+
                     Console.WriteLine($"  → Executing: {cmd.Action} on {cmd.ElementId}");
                     if (!string.IsNullOrEmpty(cmd.Message))
                     {

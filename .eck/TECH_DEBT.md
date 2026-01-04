@@ -74,6 +74,11 @@ private const int RETRY_DELAY_MS = 1000;
 
 ## Resolved
 
+### ✅ Identity Split-Brain (v1.4)
+**Fixed:** 2026-01-04
+**Problem:** Client used local random ID, while Dashboard expected Token ID, causing "Offline" status.
+**Solution:** Implemented "Identity Convergence". Server returns `CanonicalClientId` in `/DECIDE`. Client updates local persistence to match.
+
 ### ✅ Token Reading from Embedded Resources (AuthConfig.cs)
 **Fixed:** 2026-01-04
 **Problem:** Client was trying to read token from non-existent embedded resources, causing authentication failures

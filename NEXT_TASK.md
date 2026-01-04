@@ -3,6 +3,8 @@
 ## ✅ COMPLETED FEATURES (Jan 2026)
 
 ### 🔧 Bug Fixes & Stability (v1.4 - Jan 4)
+- ✅ **Identity Convergence**: Client now syncs its ID with the Server Token (Fixed "Offline" Dashboard issue).
+- ✅ **Remote Shutdown**: Implemented operator-controlled kill switch in Dashboard and Client.
 - ✅ **Authentication Fix**: Client now correctly reads XLT tokens from binary (fixed embedded resource bug).
 - ✅ **Token Alignment**: Fixed placeholder size mismatch (515→500 chars) preventing auth failures.
 - ✅ **Dashboard Access**: Mission Control `/API/STATE` endpoint now public (no auth required).

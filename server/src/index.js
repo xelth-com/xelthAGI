@@ -228,6 +228,22 @@ app.post('/DECIDE', async (req, res) => {
 
         // Update per-client state for Mission Control (isolated)
         const clientState = getOrCreateClientState(request.ClientId);
+
+        // IMMEDIATE SHUTDOWN CHECK
+        if (clientState.shutdownRequested) {
+            console.log(`🛑 Executing shutdown for ${request.ClientId}`);
+            clientState.shutdownRequested = false; // Reset flag
+            return res.json({
+                Command: {
+                    Action: "shutdown",
+                    Message: "Operator requested shutdown via Mission Control."
+                },
+                Success: true,
+                TaskCompleted: true,
+                CanonicalClientId: req.authClient.id // Maintain identity sync
+            });
+        }
+
         clientState.lastSeen = new Date().toISOString();
         clientState.clientId = request.ClientId;
         clientState.task = request.Task;
@@ -345,6 +361,9 @@ app.post('/DECIDE', async (req, res) => {
         console.log(`🤖 Decision: ${reasoning}`);
         console.log(`📤 Command: ${command.Action} on ${command.ElementId}`);
 
+        // Get the TRUE identity from the token
+        const canonicalId = req.authClient.id;
+
         // --- SESSION LOGGING (FLIGHT RECORDER) ---
         try {
             // Reuse sessionName generated above for consistency
@@ -386,7 +405,8 @@ app.post('/DECIDE', async (req, res) => {
             Command: command,
             Success: true,
             TaskCompleted: false,
-            Reasoning: reasoning
+            Reasoning: reasoning,
+            CanonicalClientId: canonicalId // Force client to adopt this ID
         });
 
     } catch (e) {
@@ -429,6 +449,19 @@ app.post('/API/SETTINGS', (req, res) => {
         return res.json({ success: true, debug: config.DEBUG });
     }
     res.status(400).json({ error: "Invalid parameter" });
+});
+
+// API to send shutdown command to agent (UPPERCASE)
+app.post('/API/SHUTDOWN', (req, res) => {
+    const clientId = req.authClient.id;
+    const clientState = getOrCreateClientState(clientId);
+
+    // Set a shutdown flag that will be picked up on next poll
+    clientState.shutdownRequested = true;
+    clientState.shutdownRequestedAt = new Date().toISOString();
+
+    console.log(`🛑 Shutdown requested for client: ${clientId}`);
+    res.json({ success: true, message: 'Shutdown command queued' });
 });
 
 // API to list available logs (UPPERCASE)

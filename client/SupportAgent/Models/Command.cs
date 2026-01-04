@@ -30,4 +30,5 @@ public class ServerResponse
     public string Error { get; set; } = string.Empty;
     public bool TaskCompleted { get; set; }
     public string Reasoning { get; set; } = string.Empty;
+    public string? CanonicalClientId { get; set; } // Server authority ID
 }

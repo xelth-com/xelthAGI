@@ -10,7 +10,7 @@ public class ServerCommunicationService
 {
     private readonly HttpClient _httpClient;
     private readonly string _serverUrl;
-    private readonly string _clientId;
+    private string _clientId; // Not readonly anymore, can be updated by server
 
     public ServerCommunicationService(string serverUrl, string clientId)
     {
@@ -68,7 +68,19 @@ public class ServerCommunicationService
                 response.EnsureSuccessStatusCode();
                 var responseJson = await response.Content.ReadAsStringAsync();
 
-                return JsonConvert.DeserializeObject<ServerResponse>(responseJson);
+                var serverResp = JsonConvert.DeserializeObject<ServerResponse>(responseJson);
+
+                // IDENTITY CONVERGENCE: Check if server enforced a Token ID
+                if (serverResp != null && !string.IsNullOrEmpty(serverResp.CanonicalClientId))
+                {
+                    if (serverResp.CanonicalClientId != _clientId)
+                    {
+                        Console.WriteLine($"\n  🔄 IDENTITY UPDATE: Server enforced ID {serverResp.CanonicalClientId}");
+                        UpdateLocalClientId(serverResp.CanonicalClientId);
+                    }
+                }
+
+                return serverResp;
             }
             catch (Exception ex)
             {
@@ -109,6 +121,27 @@ public class ServerCommunicationService
                 Console.WriteLine($"     Inner: {ex.InnerException.Message}");
             }
             return false;
+        }
+    }
+
+    private void UpdateLocalClientId(string newId)
+    {
+        try
+        {
+            _clientId = newId;
+            // Persist to disk so next run starts with correct ID
+            var path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "XelthAGI", "client-id.txt");
+            File.WriteAllText(path, newId);
+
+            // Update default header for subsequent requests
+            _httpClient.DefaultRequestHeaders.Remove("X-Client-ID");
+            _httpClient.DefaultRequestHeaders.Add("X-Client-ID", newId);
+
+            Console.WriteLine("  ✅ Local Identity synchronized with Token.");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  ⚠️ Failed to persist new ID: {ex.Message}");
         }
     }
 }

@@ -58,11 +58,34 @@ const historyList = document.getElementById('historyList');
 const logsList = document.getElementById('logsList');
 const debugToggle = document.getElementById('debugToggle');
 const downloadBtn = document.getElementById('downloadBtn');
+const shutdownBtn = document.getElementById('shutdownBtn');
 
 // Download Client Handler
 if (downloadBtn) {
     downloadBtn.addEventListener('click', () => {
         window.location.href = '/DOWNLOAD/CLIENT';
+    });
+}
+
+// Shutdown Agent Handler
+if (shutdownBtn) {
+    shutdownBtn.addEventListener('click', async () => {
+        if (!confirm('Are you sure you want to shutdown this agent?')) return;
+
+        try {
+            const response = await fetch('API/SHUTDOWN', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${authToken}` }
+            });
+            if (response.ok) {
+                alert('Shutdown command sent successfully');
+            } else {
+                alert('Failed to send shutdown command');
+            }
+        } catch (err) {
+            console.error('Shutdown failed:', err);
+            alert('Error sending shutdown command');
+        }
     });
 }
 
