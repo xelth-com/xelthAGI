@@ -233,6 +233,34 @@ class Program
             Console.WriteLine($"✅ Target window: {windowName}\n");
         }
 
+        // --- PRE-TASK CONFIRMATION DIALOG ---
+        // Show what will be done before starting automation
+        string windowInfo = automationService.CurrentWindow != null
+            ? $"🪟 Target: {GetWindowTitleSafe(automationService.CurrentWindow)}"
+            : "🪟 Target: Will attach to active window";
+
+        string preTaskResponse = ShowUnifiedDialog(
+            "Ready to Start",
+            $"🤖 Agent ID: {_clientId}",
+            $"I am about to execute the following task:\n\n📋 TASK:\n{task}\n\n{windowInfo}\n\n⏱️ Auto-start in 10 seconds...",
+            DialogMode.MessageOnly,
+            timeoutSeconds: 10
+        );
+
+        // If user explicitly closed dialog (empty = cancel), exit gracefully
+        // TIMEOUT = auto-continue, so we only exit on empty string
+        if (string.IsNullOrEmpty(preTaskResponse) && preTaskResponse != "TIMEOUT")
+        {
+            Console.WriteLine("❌ Task cancelled by user.");
+            return 0;
+        }
+
+        if (preTaskResponse == "TIMEOUT")
+        {
+            Console.WriteLine("⏱️ Auto-starting after timeout...");
+        }
+        // --- END PRE-TASK DIALOG ---
+
         Console.WriteLine($"Task: {task}");
         Console.WriteLine("Starting automation...\n");
 
@@ -486,22 +514,21 @@ class Program
                         await Task.Delay(1500); // Wait for app to start
                         Console.WriteLine("  🔄 Auto-switching to newly launched window...");
 
-                        // Try to find window by process name (e.g., "calc" -> "Rechner")
+                        // Try to find and ACTIVATE window by process name (e.g., "calc" -> "Rechner")
                         var appName = cmd.Text.Replace(".exe", "");
-                        var foundWindow = automationService.FindWindow(appName);
+                        bool switched = automationService.SwitchWindow(appName);
 
-                        if (foundWindow == null)
+                        if (!switched)
                         {
                             // Fallback: Try to get active window
-                            foundWindow = automationService.AttachToActiveWindow();
-                        }
-
-                        if (foundWindow != null)
-                        {
-                            string newWindowName = GetWindowTitleSafe(foundWindow);
-                            Console.ForegroundColor = ConsoleColor.Cyan;
-                            Console.WriteLine($"  ✅ Switched to: {newWindowName}");
-                            Console.ResetColor();
+                            var foundWindow = automationService.AttachToActiveWindow();
+                            if (foundWindow != null)
+                            {
+                                string newWindowName = GetWindowTitleSafe(foundWindow);
+                                Console.ForegroundColor = ConsoleColor.Cyan;
+                                Console.WriteLine($"  ✅ Attached to active window: {newWindowName}");
+                                Console.ResetColor();
+                            }
                         }
                     }
 
@@ -824,7 +851,8 @@ class Program
                 autoCloseTimer.Tick += (s, args) =>
                 {
                     autoCloseTimer.Stop();
-                    resultValue = ""; // Timeout = empty result
+                    resultValue = "TIMEOUT"; // Return special value to differentiate from user cancel
+                    promptForm.DialogResult = DialogResult.OK;
                     promptForm.Close();
                 };
                 autoCloseTimer.Start();

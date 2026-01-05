@@ -177,8 +177,27 @@ public class UIAutomationService : IDisposable
 
             if (newWindow != null)
             {
-                Console.WriteLine($"  ✅ Switched to window: {newWindow.Name}");
-                return true;
+                // CRITICAL: Activate window - restore if minimized, bring to foreground, and focus
+                try
+                {
+                    EnsureWindowRestored(newWindow);
+                    Thread.Sleep(100); // Wait for restore
+
+                    newWindow.SetForeground();
+                    Thread.Sleep(100); // Wait for foreground
+
+                    newWindow.Focus();
+                    Thread.Sleep(100); // Wait for focus
+
+                    Console.WriteLine($"  ✅ Switched to window: {newWindow.Name}");
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"  ⚠️  Window activation partially failed: {ex.Message}");
+                    // Still return true if we found the window, even if activation had issues
+                    return true;
+                }
             }
 
             if (DateTime.Now < deadline) Thread.Sleep(500);
@@ -691,21 +710,98 @@ public class UIAutomationService : IDisposable
                 case "ctrl+c": Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_C); break;
                 case "ctrl+v": Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_V); break;
                 default:
-                    // For any other input, treat as text to type character by character
+                    // Parse and execute keyboard commands using FlaUI (more reliable than SendKeys)
                     if (string.IsNullOrEmpty(keyCommand))
                     {
                         Console.WriteLine("  ⚠️  Empty key command");
                         return false;
                     }
-                    Console.WriteLine($"  ⌨️  Typing text: {keyCommand}");
-                    System.Windows.Forms.SendKeys.SendWait(keyCommand);
-                    return true;
+                    Console.WriteLine($"  ⌨️  Processing keyboard input: {keyCommand}");
+                    return ExecuteKeyboardSequence(keyCommand);
             }
             return true;
         }
         catch (Exception ex)
         {
             Console.WriteLine($"  ❌ PressKey failed: {ex.Message}");
+            return false;
+        }
+    }
+
+    private bool ExecuteKeyboardSequence(string sequence)
+    {
+        try
+        {
+            int i = 0;
+            while (i < sequence.Length)
+            {
+                // Handle Ctrl+ shortcuts (^a, ^c, ^v, etc.)
+                if (sequence[i] == '^' && i + 1 < sequence.Length)
+                {
+                    char key = char.ToUpper(sequence[i + 1]);
+                    VirtualKeyShort keyCode = (VirtualKeyShort)Enum.Parse(typeof(VirtualKeyShort), "KEY_" + key);
+                    Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, keyCode);
+                    Console.WriteLine($"    → Ctrl+{key}");
+                    Thread.Sleep(50);
+                    i += 2;
+                    continue;
+                }
+
+                // Handle special keys in braces: {BACKSPACE}, {DELETE}, {ENTER}, etc.
+                if (sequence[i] == '{')
+                {
+                    int endBrace = sequence.IndexOf('}', i);
+                    if (endBrace > i)
+                    {
+                        string specialKey = sequence.Substring(i + 1, endBrace - i - 1).ToUpper();
+                        switch (specialKey)
+                        {
+                            case "BACKSPACE":
+                            case "BACK":
+                                Keyboard.Type(VirtualKeyShort.BACK);
+                                Console.WriteLine("    → Backspace");
+                                break;
+                            case "DELETE":
+                            case "DEL":
+                                Keyboard.Type(VirtualKeyShort.DELETE);
+                                Console.WriteLine("    → Delete");
+                                break;
+                            case "ENTER":
+                            case "RETURN":
+                                Keyboard.Type(VirtualKeyShort.RETURN);
+                                Console.WriteLine("    → Enter");
+                                break;
+                            case "ESC":
+                            case "ESCAPE":
+                                Keyboard.Type(VirtualKeyShort.ESCAPE);
+                                Console.WriteLine("    → Escape");
+                                break;
+                            case "TAB":
+                                Keyboard.Type(VirtualKeyShort.TAB);
+                                Console.WriteLine("    → Tab");
+                                break;
+                            default:
+                                Console.WriteLine($"    ⚠️  Unknown special key: {{{specialKey}}}");
+                                break;
+                        }
+                        Thread.Sleep(50);
+                        i = endBrace + 1;
+                        continue;
+                    }
+                }
+
+                // Regular text - type character
+                Keyboard.Type(sequence[i].ToString());
+                i++;
+            }
+
+            Thread.Sleep(100);
+            Console.WriteLine("  ✅ Keyboard sequence completed");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  ❌ ExecuteKeyboardSequence failed: {ex.Message}");
             return false;
         }
     }
