@@ -12,7 +12,11 @@
 
 ### 1. Запуск инсталлятора
 - **Action**: Запустить процесс `{InstallerPath}`
-- **Wait**: Ожидать появления окна с текстом "InstallShield Wizard" или "Preparing Setup".
+- **Note**: Это вызовет UAC диалог (User Account Control).
+
+### 1.1. Подтверждение UAC
+- **Action**: `ask_user` с текстом: "A UAC (User Account Control) dialog should have appeared. Please click 'Yes' to allow the installer to run with administrator privileges. Click OK here when done."
+- **Wait**: Дождаться появления окна "InstallShield Wizard" или окна с подтверждением переустановки.
 
 ### 2. Подготовка и Приветствие
 - **Check**: Если появится окно с предложением подключить USB сейчас, нажать "OK".

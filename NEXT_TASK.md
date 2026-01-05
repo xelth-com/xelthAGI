@@ -7,6 +7,11 @@
 - ✅ **Remote Shutdown**: Implemented operator-controlled kill switch in Dashboard and Client.
 - ✅ **Authentication Fix**: Client now correctly reads XLT tokens from binary (fixed embedded resource bug).
 - ✅ **Token Alignment**: Fixed placeholder size mismatch (515→500 chars) preventing auth failures.
+- ✅ **Playbook Testing**: Tested `install_lookinbody.md` with full server logging.
+  - ✅ **UAC Workflow Confirmed**: Client CAN work without admin rights! UAC → User confirms → Client continues.
+  - 🐛 **CRITICAL BUG**: `inspect_screen` captures only window title, NOT full screen. OCR can't find buttons.
+    - **Impact**: Client cannot find UI elements in dialogs (found "Confirm Uninstall" window but 0 UI elements)
+    - **Fix Needed**: Change screenshot to capture full desktop, not just current window bounds
 - ✅ **Dashboard Access**: Mission Control `/API/STATE` endpoint now public (no auth required).
 - ✅ **Real-time Monitoring**: Dashboard displays agent status, tasks, and screenshots live.
 - ✅ **Crash Debugging**: Added global try-catch wrapper and debug logging tools.
