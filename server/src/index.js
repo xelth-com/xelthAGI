@@ -282,13 +282,15 @@ app.post('/DECIDE', async (req, res) => {
         };
 
         // Generate consistent Session Name for grouping logs and screenshots
-        const shortId = request.ClientId.substring(0, 6);
+        // SECURITY: Use full clientId for proper isolation
+        const clientId = request.ClientId;
         const safeTaskName = request.Task
             .replace(/[^a-zA-Z0-9]/g, '_')
             .replace(/_+/g, '_')
             .substring(0, 50);
         const dateStr = new Date().toISOString().slice(0, 10);
-        const sessionName = `${safeTaskName}_${shortId}_${dateStr}`;
+        const timestamp = Date.now();
+        const sessionName = `${clientId}_${safeTaskName}_${timestamp}`;
 
         // Update per-client state
         clientState.sessionName = sessionName;
@@ -465,10 +467,20 @@ app.post('/API/SHUTDOWN', (req, res) => {
 });
 
 // API to list available logs (UPPERCASE)
+// SECURITY: Only returns logs belonging to the authenticated client
 app.get('/API/LOGS', (req, res) => {
     try {
+        // Get the client ID from the authenticated token
+        const clientId = req.authClient.id;
+
+        // Filter logs to show ONLY this client's sessions
         const files = fs.readdirSync(logsDir)
             .filter(f => f.endsWith('.json'))
+            .filter(f => {
+                // NEW: Check if filename starts with this client's ID
+                // Format: {clientId}_{taskName}_{timestamp}.json
+                return f.startsWith(clientId + '_');
+            })
             .map(f => {
                 const sessionName = f.replace('.json', '');
                 const screenshotPath = path.join(screenshotsDir, sessionName);
@@ -486,6 +498,36 @@ app.get('/API/LOGS', (req, res) => {
     } catch (e) {
         res.status(500).json({ error: e.message });
     }
+});
+
+// SECURITY: Protect direct access to logs and screenshots
+// Only allow access to files belonging to the authenticated client
+app.use('/AGI/LOGS/:filename', authenticate, (req, res, next) => {
+    const clientId = req.authClient.id;
+    const filename = req.params.filename;
+
+    // Check if filename starts with this client's ID
+    if (!filename.startsWith(clientId + '_')) {
+        console.warn(`🔒 Blocked unauthorized log access: ${clientId} tried to access ${filename}`);
+        return res.status(403).json({ error: 'Access denied: Not your log file' });
+    }
+
+    // Allow access to own files
+    next();
+});
+
+app.use('/AGI/SCREENSHOTS/:sessionName/*', authenticate, (req, res, next) => {
+    const clientId = req.authClient.id;
+    const sessionName = req.params.sessionName;
+
+    // Check if sessionName starts with this client's ID
+    if (!sessionName.startsWith(clientId + '_')) {
+        console.warn(`🔒 Blocked unauthorized screenshot access: ${clientId} tried to access ${sessionName}`);
+        return res.status(403).json({ error: 'Access denied: Not your screenshot' });
+    }
+
+    // Allow access to own files
+    next();
 });
 
 // Serve static files from public directory (Mission Control dashboard)

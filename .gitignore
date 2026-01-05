@@ -59,3 +59,4 @@ Thumbs.db
 
 # Added by eck-snapshot to ignore metadata directory
 .eck/
+dev_token.txt

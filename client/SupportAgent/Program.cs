@@ -100,6 +100,30 @@ class Program
         Console.WriteLine("║   Support Agent - C# + FlaUI Client       ║");
         Console.WriteLine("╚════════════════════════════════════════════╝\n");
 
+        string currentToken = AuthConfig.GetToken();
+
+        // --- DEV MODE CHECK ---
+        if (currentToken == "DEV_TOKEN_MISSING")
+        {
+            Console.ForegroundColor = ConsoleColor.Red;
+            Console.WriteLine("❌ DEV MODE ERROR: 'dev_token.txt' not found!");
+            Console.WriteLine("   Please generate a local token:");
+            Console.WriteLine("   node ../../server/scripts/mint_zero.js");
+            Console.ResetColor();
+            return 1;
+        }
+
+        if (currentToken.Length > 50 && !currentToken.Contains("XELTH_TOKEN_SLOT"))
+        {
+            // Подсказка, что мы работаем под ID 0
+            Console.ForegroundColor = ConsoleColor.Cyan;
+            Console.WriteLine("🔧 FAST DEV MODE ACTIVE (ID: 00000000)");
+            Console.WriteLine("   Using local token from dev_token.txt");
+            Console.ResetColor();
+            Console.WriteLine();
+        }
+        // -----------------------
+
         _clientId = GetOrCreateClientId();
         Console.WriteLine($"Client ID: {_clientId}");
         Console.WriteLine();
@@ -121,10 +145,13 @@ class Program
 
             Console.WriteLine($"Server: {serverUrl}");
 
-            Console.ForegroundColor = ConsoleColor.Green;
-            Console.Write("👉 Enter Task: ");
-            Console.ResetColor();
-            task = Console.ReadLine()?.Trim();
+            // REPLACED: Console input with GUI Dialog
+            task = ShowUnifiedDialog(
+                "XelthAGI Agent - Start",
+                "Hello! I am ready to help.",
+                "Please enter the task you want me to perform:",
+                DialogMode.InputOnly
+            );
 
             if (string.IsNullOrEmpty(task))
             {
@@ -132,16 +159,14 @@ class Program
                 return 0;
             }
 
-            // Ask for Auto-Approve in interactive mode
+            // Log the task to console for history
+            Console.WriteLine($"Task entered: {task}");
+
+            // Ask for Auto-Approve in interactive mode (Simple fallback or assume safe defaults)
             if (!unsafeMode)
             {
-                Console.Write("Enable Auto-Approve (Unsafe Mode)? [y/N]: ");
-                var k = Console.ReadKey();
-                Console.WriteLine();
-                if (k.Key == ConsoleKey.Y)
-                {
-                    unsafeMode = true;
-                }
+                // Optional: We can assume safe mode or strictly ask.
+                // For simplified UX, let's default to Safe mode unless flagged.
             }
         }
         // ------------------------
@@ -312,8 +337,16 @@ class Program
                 if (response.TaskCompleted)
                 {
                     Console.WriteLine("\n✅ Task completed successfully!");
-                    ShowCompletionNotification(task, "Task completed successfully");
-                    await Task.Delay(2000); // Brief pause to show notification
+
+                    // REPLACED: Use unified dialog instead of disappearing notification
+                    string completionMsg = response.Command?.Message ?? "Task completed successfully.";
+                    ShowUnifiedDialog(
+                        "Task Completed",
+                        "The agent has finished work.",
+                        $"RESULT:\n{completionMsg}",
+                        DialogMode.MessageOnly
+                    );
+
                     return 0;
                 }
 
@@ -335,10 +368,12 @@ class Program
                     Console.WriteLine($"  {response.Command.Text}");
                     Console.ResetColor();
 
-                    // Open GUI Dialog (Blocking)
-                    string userInput = ShowInputDialog(
+                    // Open GUI Dialog (Blocking) -> UPDATED CALL
+                    string userInput = ShowUnifiedDialog(
                         "AI Agent Needs Help",
-                        response.Command.Text
+                        "The AI Agent needs your input:",
+                        response.Command.Text,
+                        DialogMode.FullInteractive
                     );
 
                     // Log response
@@ -593,6 +628,14 @@ class Program
         FlashWindow(hWnd, false);
     }
 
+    // ENUM for Dialog Modes
+    private enum DialogMode
+    {
+        FullInteractive, // Buttons + Text (for ask_user)
+        InputOnly,       // Only text input (for startup)
+        MessageOnly      // Only message and OK button (for completion)
+    }
+
     // Helper method to show a GUI Input Dialog with Force Foreground
     // Helper method to show a 3-Button Safety Dialog
     private static DialogResult ShowSafetyDialog(string title, string prompt)
@@ -666,50 +709,51 @@ class Program
         return promptForm.ShowDialog();
     }
 
-    // Helper method to show a Hybrid Input Dialog (Buttons + Text)
-    private static string ShowInputDialog(string title, string prompt)
+    // Unified Dialog supporting 3 modes: FullInteractive, InputOnly, MessageOnly
+    private static string ShowUnifiedDialog(string title, string headerText, string contentText, DialogMode mode)
     {
         string resultValue = "";
 
         Form promptForm = new Form()
         {
             Width = 600,
-            Height = 480,
+            Height = 500,
             FormBorderStyle = FormBorderStyle.FixedDialog,
             Text = title,
             StartPosition = FormStartPosition.CenterScreen,
             TopMost = true,
-            ControlBox = false // No close button, force a choice
+            ControlBox = mode != DialogMode.InputOnly // Hide close button only if input strictly required
         };
 
         // Header
         Label headerLabel = new Label()
         {
-            Left = 20, Top = 15, Width = 540, Height = 20,
-            Text = "The AI Agent needs your input:",
-            Font = new Font("Segoe UI", 9, FontStyle.Bold)
+            Left = 20, Top = 15, Width = 540, Height = 25,
+            Text = headerText,
+            Font = new Font("Segoe UI", 11, FontStyle.Bold)
         };
 
-        // Scrollable Text Area for Agent's Message
+        // Scrollable Text Area (Prompt or Content)
         TextBox messageBox = new TextBox()
         {
             Left = 20,
-            Top = 40,
+            Top = 50,
             Width = 540,
-            Height = 180,
+            Height = 160,
             Multiline = true,
             ReadOnly = true,
             ScrollBars = ScrollBars.Vertical,
             BackColor = Color.White,
-            Text = prompt,
+            Text = contentText,
             Font = new Font("Segoe UI", 10)
         };
 
-        // --- Quick Actions Section ---
+        // --- Quick Actions Section (Only for FullInteractive) ---
         GroupBox groupActions = new GroupBox()
         {
-            Left = 20, Top = 230, Width = 540, Height = 80,
-            Text = "Quick Reply (Click one)"
+            Left = 20, Top = 220, Width = 540, Height = 80,
+            Text = "Quick Reply",
+            Visible = (mode == DialogMode.FullInteractive)
         };
 
         Button btnYes = new Button() { Text = "✅ Yes / Allow", Left = 20, Top = 25, Width = 150, Height = 40, BackColor = Color.LightGreen };
@@ -724,52 +768,71 @@ class Program
         groupActions.Controls.Add(btnNo);
         groupActions.Controls.Add(btnDunno);
 
-        // --- Custom Input Section ---
+        // --- Custom Input / Main Input Section ---
+        int inputTop = (mode == DialogMode.FullInteractive) ? 310 : 230;
+
         GroupBox groupInput = new GroupBox()
         {
-            Left = 20, Top = 320, Width = 540, Height = 80,
-            Text = "Or type specific data (e.g., code, name, path)"
+            Left = 20, Top = inputTop, Width = 540, Height = 100,
+            Text = (mode == DialogMode.InputOnly) ? "Enter your command/task here:" : "Or type specific data/response:",
+            Visible = (mode != DialogMode.MessageOnly)
         };
 
         TextBox inputBox = new TextBox()
         {
-            Left = 20, Top = 30, Width = 380, Font = new Font("Segoe UI", 10)
+            Left = 20, Top = 35, Width = 380, Height = 40,
+            Font = new Font("Segoe UI", 11)
         };
 
         Button btnSend = new Button()
         {
-            Text = "Send Text",
-            Left = 410, Top = 28, Width = 110, Height = 30,
+            Text = (mode == DialogMode.InputOnly) ? "Start Task" : "Send Text",
+            Left = 410, Top = 33, Width = 110, Height = 34,
             BackColor = Color.LightBlue
         };
 
         btnSend.Click += (s, e) => {
             resultValue = inputBox.Text;
-            if (string.IsNullOrWhiteSpace(resultValue)) return; // Don't send empty
+            if (string.IsNullOrWhiteSpace(resultValue)) return;
             promptForm.DialogResult = DialogResult.OK;
             promptForm.Close();
         };
 
-        // Allow Enter key to trigger Send
         inputBox.KeyDown += (s, e) => { if (e.KeyCode == Keys.Enter) btnSend.PerformClick(); };
 
         groupInput.Controls.Add(inputBox);
         groupInput.Controls.Add(btnSend);
 
+        // --- Close/Exit Button for MessageOnly mode ---
+        Button btnClose = new Button()
+        {
+            Text = "Close / Exit",
+            Left = 200, Top = 400, Width = 140, Height = 40,
+            Visible = (mode == DialogMode.MessageOnly)
+        };
+        btnClose.Click += (s, e) => { promptForm.Close(); };
+
         promptForm.Controls.Add(headerLabel);
         promptForm.Controls.Add(messageBox);
         promptForm.Controls.Add(groupActions);
         promptForm.Controls.Add(groupInput);
+        promptForm.Controls.Add(btnClose);
 
-        // Aggressively force focus
+        // Resize form based on mode
+        if (mode == DialogMode.MessageOnly) promptForm.Height = 350;
+        if (mode == DialogMode.InputOnly) promptForm.Height = 400;
+
+        // Auto-focus logic
         promptForm.Shown += (sender, e) =>
         {
             ForceWindowToForeground(promptForm.Handle);
             promptForm.Activate();
+            if (mode != DialogMode.MessageOnly) inputBox.Focus();
         };
 
         // Sound alert
-        System.Media.SystemSounds.Exclamation.Play();
+        if (mode != DialogMode.InputOnly) // Don't beep on startup
+            System.Media.SystemSounds.Exclamation.Play();
 
         promptForm.ShowDialog();
         return resultValue;

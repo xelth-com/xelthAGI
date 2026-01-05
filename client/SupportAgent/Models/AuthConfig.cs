@@ -1,3 +1,5 @@
+using System.Linq;
+
 namespace SupportAgent.Models;
 
 public static class AuthConfig
@@ -55,14 +57,33 @@ public static class AuthConfig
 
     public static string GetToken()
     {
-        string slot = TOKEN_SLOT;
-
-        // If the slot still contains the default placeholder, we are in DEV mode
-        if (slot.Contains("XELTH_TOKEN_SLOT_"))
+        try
         {
-            return "DEV_TOKEN_UNPATCHED";
-        }
+            string slot = TOKEN_SLOT;
 
-        return slot.Trim();
+            // Логика: Если это НЕ патченный exe (dotnet run или билд без токена)
+            if (string.IsNullOrWhiteSpace(slot) || slot.Contains("XELTH_TOKEN_SLOT_"))
+            {
+                // Пытаемся прочитать локальный dev-токен
+                string devTokenPath = "dev_token.txt";
+
+                if (System.IO.File.Exists(devTokenPath))
+                {
+                    // Возвращаем токен из файла (ID: 00000000)
+                    var token = System.IO.File.ReadAllText(devTokenPath);
+                    // Remove all control characters including newlines, carriage returns, etc.
+                    token = new string(token.Where(c => !char.IsControl(c)).ToArray());
+                    return token.Trim();
+                }
+
+                return "DEV_TOKEN_MISSING";
+            }
+
+            return slot.Trim();
+        }
+        catch
+        {
+            return "DEV_TOKEN_ERROR";
+        }
     }
 }
