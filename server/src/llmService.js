@@ -107,6 +107,32 @@ class LLMService {
             response = await this._askGemini(prompt, screenshotBase64);
         }
 
+        // --- LOGIC GUARDRAIL: Prevent Premature Completion ---
+        if (response && response.task_completed === true) {
+            const done = response.steps_done || 0;
+            const total = response.steps_total || 0;
+
+            // Only enforce if total is explicitly stated and greater than done
+            if (total > 0 && done < total) {
+                console.warn(`🛡️ GUARDRAIL ACTIVE: Blocked premature completion. Steps: ${done}/${total}`);
+
+                response.task_completed = false;
+
+                // If the model tried to stop without an action, force a 'wait' so it gets a chance to think again
+                if (!response.action) {
+                    response.action = "wait";
+                    response.text = "1000"; // wait 1s
+                }
+
+                // Inject override message to guide the model on the next turn
+                response.message = `SYSTEM OVERRIDE: You marked task as complete, but you only finished ${done} of ${total} steps. You MUST continue with step ${done + 1}.`;
+
+                // Update reasoning to reflect the intervention
+                response.reasoning = `[SYSTEM GUARDRAIL] Prevented premature exit. ${response.reasoning}`;
+            }
+        }
+        // -----------------------------------------------------
+
         // Server-Side Actions (Search / Playbook)
         if (response && response.action === 'net_search') {
             const query = response.text || '';
