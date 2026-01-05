@@ -339,6 +339,7 @@ class Program
                     Console.WriteLine("\n✅ Task completed successfully!");
 
                     // REPLACED: Use unified dialog instead of disappearing notification
+                    // Dialog will auto-close after 10 seconds
                     string completionMsg = response.Command?.Message ?? "Task completed successfully.";
                     ShowUnifiedDialog(
                         "Task Completed",
@@ -865,6 +866,19 @@ class Program
             ForceWindowToForeground(promptForm.Handle);
             promptForm.Activate();
             if (mode != DialogMode.MessageOnly) inputBox.Focus();
+
+            // Auto-close after 10 seconds for MessageOnly mode
+            if (mode == DialogMode.MessageOnly)
+            {
+                var autoCloseTimer = new System.Windows.Forms.Timer();
+                autoCloseTimer.Interval = 10000; // 10 seconds
+                autoCloseTimer.Tick += (s, args) =>
+                {
+                    autoCloseTimer.Stop();
+                    promptForm.Close();
+                };
+                autoCloseTimer.Start();
+            }
         };
 
         // Sound alert
