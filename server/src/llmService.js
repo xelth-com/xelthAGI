@@ -153,10 +153,12 @@ class LLMService {
 **TASK**: ${task}
 
 **BEFORE EACH ACTION**:
-- Parse the task into distinct steps (e.g., "do A, then do B, then do C" = 3 steps)
+- Parse the task into distinct steps. IMPORTANT: "A and B" or "A, then B" = TWO steps!
+  Example: "Open Calculator, calculate 5+3, then open Notepad and type result" = 4 steps:
+  (1) Open Calculator, (2) Calculate 5+3, (3) Open Notepad, (4) Type result
 - Check your history to see which steps are DONE
 - If ANY step is NOT done, continue working - do NOT set task_completed to true
-- ONLY set task_completed:true when you can confirm EVERY step is completed
+- ONLY set task_completed:true when EVERY SINGLE step is completed and verified in history
 
 **🧠 COGNITIVE CHECK (REQUIRED)**
 Look at the **SYSTEM MEMORY** below.
