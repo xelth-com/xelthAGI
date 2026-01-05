@@ -68,7 +68,7 @@ echo    Target: https://xelth.com/AGI
 echo.
 
 REM Run client against PROD server
-publish\SupportAgent.exe --server "https://xelth.com/AGI" --task "XLT Prod Integration Test" --auto-approve
+publish\SupportAgent.exe --server "https://xelth.com/AGI" --task "открой калькулятор посчитай 3-1 ответ скопируй, открой notepad и запиши его туда" --auto-approve
 
 echo.
 echo [TEST COMPLETE]

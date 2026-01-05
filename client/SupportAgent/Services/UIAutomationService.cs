@@ -8,12 +8,13 @@ using SupportAgent.Models;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
+using System.Text;
 
 namespace SupportAgent.Services;
 
 public class UIAutomationService : IDisposable
 {
-    // Windows API для проверки фокуса окна
+    // Windows API
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
 
@@ -24,6 +25,17 @@ public class UIAutomationService : IDisposable
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+    // Keyboard Layout API
+    [DllImport("user32.dll")]
+    private static extern IntPtr LoadKeyboardLayout(string pwszKLID, uint Flags);
+
+    [DllImport("user32.dll")]
+    private static extern bool PostMessage(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+    private const uint WM_INPUTLANGCHANGEREQUEST = 0x0050;
+    private const string LANG_EN_US = "00000409";
+    private const uint KLF_ACTIVATE = 1;
 
     private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
     private static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
@@ -36,16 +48,9 @@ public class UIAutomationService : IDisposable
     private readonly HttpClient _httpClient;
     private readonly SystemService _systemService;
 
-    // Current active window (can be switched dynamically)
     public Window? CurrentWindow { get; private set; }
-
-    // Track last interacted window for cleanup
     private Window? _lastInteractedWindow;
-
-    // Clipboard content storage for read_clipboard command
     public string? LastClipboardContent { get; private set; }
-
-    // OS operation result storage
     public string? LastOsOperationResult { get; private set; }
 
     public UIAutomationService()
@@ -83,10 +88,6 @@ public class UIAutomationService : IDisposable
         return null;
     }
 
-    /// <summary>
-    /// Находит окно по имени процесса или заголовку
-    /// Process name matching has highest priority to solve localization issues
-    /// </summary>
     public Window? FindWindow(string processNameOrTitle)
     {
         var desktop = _automation.GetDesktop();
@@ -98,64 +99,35 @@ public class UIAutomationService : IDisposable
         foreach (var window in windows)
         {
             var title = window.Name ?? "";
-
             try
             {
-                // Получаем имя процесса
                 var processId = window.Properties.ProcessId.ValueOrDefault;
                 var process = System.Diagnostics.Process.GetProcessById(processId);
                 var processName = process.ProcessName;
 
-                // Special handling for UWP apps (ApplicationFrameHost wrapper)
-                // These apps run inside ApplicationFrameHost, so we must match by title patterns
                 if (processName.Equals("ApplicationFrameHost", StringComparison.OrdinalIgnoreCase))
                 {
-                    // Calculator app matching (handles all localizations)
-                    var isCalculatorSearch = processNameOrTitle.Equals("calc", StringComparison.OrdinalIgnoreCase) ||
-                                            processNameOrTitle.Equals("calculator", StringComparison.OrdinalIgnoreCase) ||
-                                            processNameOrTitle.Equals("calculatorapp", StringComparison.OrdinalIgnoreCase);
-
-                    var isCalculatorWindow = title.Equals("Rechner", StringComparison.OrdinalIgnoreCase) ||
-                                            title.Equals("Calculator", StringComparison.OrdinalIgnoreCase) ||
-                                            title.Equals("Taschenrechner", StringComparison.OrdinalIgnoreCase) ||
-                                            title.Contains("Calculatrice", StringComparison.OrdinalIgnoreCase) ||
-                                            title.Contains("Calculadora", StringComparison.OrdinalIgnoreCase);
-
-                    if (isCalculatorSearch && isCalculatorWindow)
+                    if (IsCalculator(processNameOrTitle, title))
                     {
                         CurrentWindow = window.AsWindow();
                         return CurrentWindow;
                     }
                 }
 
-                // 1. Точное совпадение по имени процесса (наивысший приоритет)
                 if (processName.Equals(processNameOrTitle, StringComparison.OrdinalIgnoreCase))
                 {
                     CurrentWindow = window.AsWindow();
                     return CurrentWindow;
                 }
 
-                // 2. Частичное совпадение по имени процесса (например, "calc" -> "CalculatorApp")
-                // Проверяем если поисковый запрос содержится в начале имени процесса
-                if (processPartialMatch == null &&
-                    processName.StartsWith(processNameOrTitle, StringComparison.OrdinalIgnoreCase))
-                {
+                if (processPartialMatch == null && processName.StartsWith(processNameOrTitle, StringComparison.OrdinalIgnoreCase))
                     processPartialMatch = window.AsWindow();
-                }
 
-                // 3. Также проверяем обратное: если имя процесса содержится в поисковом запросе
-                // Это покрывает случаи "calculator" -> "calc.exe" или "CalculatorApp"
-                if (processPartialMatch == null &&
-                    processNameOrTitle.Contains(processName, StringComparison.OrdinalIgnoreCase))
-                {
+                if (processPartialMatch == null && processNameOrTitle.Contains(processName, StringComparison.OrdinalIgnoreCase))
                     processPartialMatch = window.AsWindow();
-                }
 
-                // 4. Точное совпадение или начало заголовка
-                if (title.Equals(processNameOrTitle, StringComparison.OrdinalIgnoreCase) ||
-                    title.StartsWith(processNameOrTitle, StringComparison.OrdinalIgnoreCase))
+                if (title.Equals(processNameOrTitle, StringComparison.OrdinalIgnoreCase) || title.StartsWith(processNameOrTitle, StringComparison.OrdinalIgnoreCase))
                 {
-                    // Если уже есть частичное совпадение процесса, приоритет у него
                     if (processPartialMatch == null)
                     {
                         CurrentWindow = window.AsWindow();
@@ -163,34 +135,36 @@ public class UIAutomationService : IDisposable
                     }
                 }
 
-                // 5. Contains в заголовке как последний fallback (низкий приоритет)
-                if (titleFallbackMatch == null &&
-                    title.Contains(processNameOrTitle, StringComparison.OrdinalIgnoreCase))
+                if (titleFallbackMatch == null && title.Contains(processNameOrTitle, StringComparison.OrdinalIgnoreCase))
                 {
-                    // Исключаем окна командной строки и терминалов
-                    if (!processName.Equals("cmd", StringComparison.OrdinalIgnoreCase) &&
-                        !processName.Equals("powershell", StringComparison.OrdinalIgnoreCase) &&
-                        !processName.Equals("WindowsTerminal", StringComparison.OrdinalIgnoreCase))
-                    {
+                    if (!IsTerminalProcess(processName))
                         titleFallbackMatch = window.AsWindow();
-                    }
                 }
             }
-            catch
-            {
-                // Процесс может быть недоступен
-            }
+            catch { }
         }
 
-        // Приоритет: частичное совпадение процесса > fallback по заголовку
         CurrentWindow = processPartialMatch ?? titleFallbackMatch;
         return CurrentWindow;
     }
 
-    /// <summary>
-    /// Switches to a different window by title or process name
-    /// Retries for up to 5 seconds with 500ms polling interval
-    /// </summary>
+    private bool IsCalculator(string search, string title)
+    {
+        var isSearch = search.Equals("calc", StringComparison.OrdinalIgnoreCase) ||
+                       search.Equals("calculator", StringComparison.OrdinalIgnoreCase);
+        var isWindow = title.Equals("Rechner", StringComparison.OrdinalIgnoreCase) ||
+                       title.Equals("Calculator", StringComparison.OrdinalIgnoreCase) ||
+                       title.Contains("Calculatrice", StringComparison.OrdinalIgnoreCase);
+        return isSearch && isWindow;
+    }
+
+    private bool IsTerminalProcess(string name)
+    {
+        return name.Equals("cmd", StringComparison.OrdinalIgnoreCase) ||
+               name.Equals("powershell", StringComparison.OrdinalIgnoreCase) ||
+               name.Equals("WindowsTerminal", StringComparison.OrdinalIgnoreCase);
+    }
+
     public bool SwitchWindow(string titleOrProcess)
     {
         DateTime deadline = DateTime.Now.AddSeconds(5);
@@ -203,44 +177,20 @@ public class UIAutomationService : IDisposable
 
             if (newWindow != null)
             {
-                if (attemptCount > 1)
-                {
-                    Console.WriteLine($"  ✅ Switched to window: {newWindow.Name} (after {attemptCount} attempts)");
-                }
-                else
-                {
-                    Console.WriteLine($"  ✅ Switched to window: {newWindow.Name}");
-                }
+                Console.WriteLine($"  ✅ Switched to window: {newWindow.Name}");
                 return true;
             }
 
-            // Window not found yet, wait 500ms before retrying
-            if (DateTime.Now < deadline)
-            {
-                if (attemptCount == 1)
-                {
-                    Console.WriteLine($"  ⏳ Window '{titleOrProcess}' not found yet, waiting up to 5 seconds...");
-                }
-                Thread.Sleep(500);
-            }
+            if (DateTime.Now < deadline) Thread.Sleep(500);
         }
 
-        // Timeout reached
-        Console.WriteLine($"  ❌ Window not found after 5 seconds ({attemptCount} attempts): {titleOrProcess}");
-        Console.WriteLine($"  💡 Tip: Make sure the window is fully loaded. Try matching by process name (e.g., 'calc', 'notepad')");
+        Console.WriteLine($"  ❌ Window not found after 5 seconds: {titleOrProcess}");
         return false;
     }
 
-    /// <summary>
-    /// Сканирует текущее состояние окна
-    /// </summary>
     public UIState GetWindowState(Window window)
     {
-        // Path 1: Client-Side Reflex (Auto-Restore)
-        // If window is minimized, restore it immediately so we can see elements/screenshot
         EnsureWindowRestored(window);
-
-        // Очищаем кеш перед новым сканированием
         _elementCache.Clear();
 
         var state = new UIState
@@ -250,15 +200,10 @@ public class UIAutomationService : IDisposable
             Elements = new List<UIElement>()
         };
 
-        // Рекурсивно собираем все элементы
         ScanElements(window, state.Elements, maxDepth: 10);
-
         return state;
     }
 
-    /// <summary>
-    /// Checks if window is minimized and restores it
-    /// </summary>
     private void EnsureWindowRestored(Window window)
     {
         try
@@ -268,46 +213,20 @@ public class UIAutomationService : IDisposable
                 var windowPattern = window.Patterns.Window.Pattern;
                 if (windowPattern.WindowVisualState.Value == WindowVisualState.Minimized)
                 {
-                    Console.WriteLine("  ⚠️  Window is MINIMIZED! Auto-restoring...");
                     windowPattern.SetWindowVisualState(WindowVisualState.Normal);
-                    Thread.Sleep(300); // Wait for animation
-                    Console.WriteLine("  ✅ Window restored to Normal state");
+                    Thread.Sleep(300);
                 }
             }
         }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"  ❌ Failed to auto-restore window: {ex.Message}");
-        }
+        catch { }
     }
 
-    /// <summary>
-    /// Проверяет, находится ли целевое окно в фокусе (foreground)
-    /// </summary>
-    private bool IsWindowInFocus(Window window)
-    {
-        try
-        {
-            var foregroundHandle = GetForegroundWindow();
-            var targetHandle = window.Properties.NativeWindowHandle.ValueOrDefault;
-            return foregroundHandle == targetHandle;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Возвращает фокус на целевое окно
-    /// </summary>
     private bool EnsureWindowFocus(Window window)
     {
         try
         {
             var currentHandle = window.Properties.NativeWindowHandle.ValueOrDefault;
 
-            // CLEANUP: If we switched windows, release the previous one from TopMost
             if (_lastInteractedWindow != null)
             {
                 try
@@ -315,65 +234,43 @@ public class UIAutomationService : IDisposable
                     var oldHandle = _lastInteractedWindow.Properties.NativeWindowHandle.ValueOrDefault;
                     if (oldHandle != IntPtr.Zero && oldHandle != currentHandle)
                     {
-                        // Downgrade previous window to Normal (Not TopMost)
                         SetWindowPos(oldHandle, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
                     }
                 }
-                catch { /* Ignore errors if old window is closed */ }
+                catch { }
             }
 
             _lastInteractedWindow = window;
-
-            // PROACTIVE LOCK: Set TOPMOST FIRST to HOLD focus, not just restore it
-            // This prevents focus loss during the action, not after
             SetWindowPos(currentHandle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
             SetForegroundWindow(currentHandle);
 
-            if (!IsWindowInFocus(window))
-            {
-                Console.WriteLine("  ⚠️  Target window lost focus! Attempting to restore...");
-                Thread.Sleep(200); // Даем время на переключение фокуса
-                Console.WriteLine("  ✅ Focus restored to target window");
-            }
-
             return true;
         }
-        catch (Exception ex)
+        catch
         {
-            Console.WriteLine($"  ❌ Error ensuring window focus: {ex.Message}");
             return false;
         }
     }
 
-    /// <summary>
-    /// Captures context-aware screenshot (Window if focused, else Desktop) for AI
-    /// </summary>
     public string CaptureScreen(int quality = 50)
     {
         try
         {
             var desktop = _automation.GetDesktop();
-            // Prefer capturing specific window if available
             var target = CurrentWindow ?? desktop;
-
             return CaptureElement(target, quality);
         }
-        catch (Exception ex)
+        catch
         {
-            Console.WriteLine($"⚠️ Screenshot failed: {ex.Message}");
             return "";
         }
     }
 
-    /// <summary>
-    /// Captures full desktop screenshot regardless of focus (For Shadow Debugging)
-    /// </summary>
     public string CaptureFullDesktop(int quality = 30)
     {
         try
         {
-            var desktop = _automation.GetDesktop();
-            return CaptureElement(desktop, quality);
+            return CaptureElement(_automation.GetDesktop(), quality);
         }
         catch
         {
@@ -396,9 +293,7 @@ public class UIAutomationService : IDisposable
 
             using var ms = new MemoryStream();
             image.Save(ms, jpegEncoder, encoderParameters);
-            byte[] imageBytes = ms.ToArray();
-
-            return Convert.ToBase64String(imageBytes);
+            return Convert.ToBase64String(ms.ToArray());
         }
         catch
         {
@@ -408,8 +303,7 @@ public class UIAutomationService : IDisposable
 
     private ImageCodecInfo? GetEncoder(ImageFormat format)
     {
-        var codecs = ImageCodecInfo.GetImageDecoders();
-        return codecs.FirstOrDefault(codec => codec.FormatID == format.Guid);
+        return ImageCodecInfo.GetImageDecoders().FirstOrDefault(codec => codec.FormatID == format.Guid);
     }
 
     private void ScanElements(AutomationElement element, List<UIElement> elements, int maxDepth, int currentDepth = 0)
@@ -421,9 +315,7 @@ public class UIAutomationService : IDisposable
             var children = element.FindAllChildren();
             foreach (var child in children)
             {
-                // Генерируем стабильный ID
                 var elementId = child.Properties.AutomationId.ValueOrDefault ?? Guid.NewGuid().ToString();
-
                 var uiElement = new UIElement
                 {
                     Id = elementId,
@@ -440,23 +332,17 @@ public class UIAutomationService : IDisposable
                     }
                 };
 
-                // Сохраняем элемент в кеш для быстрого доступа
                 _elementCache[elementId] = child;
 
-                // Добавляем только значимые элементы
                 if (IsSignificantElement(uiElement))
                 {
                     elements.Add(uiElement);
                 }
 
-                // Рекурсия для вложенных элементов
                 ScanElements(child, elements, maxDepth, currentDepth + 1);
             }
         }
-        catch
-        {
-            // Некоторые элементы могут быть недоступны
-        }
+        catch { }
     }
 
     private string GetElementValue(AutomationElement element)
@@ -479,78 +365,38 @@ public class UIAutomationService : IDisposable
 
     private bool IsSignificantElement(UIElement element)
     {
-        // Фильтруем незначимые элементы
-        if (string.IsNullOrWhiteSpace(element.Name) && string.IsNullOrWhiteSpace(element.Value))
-            return false;
-
-        if (element.Bounds.Width <= 0 || element.Bounds.Height <= 0)
-            return false;
-
+        if (string.IsNullOrWhiteSpace(element.Name) && string.IsNullOrWhiteSpace(element.Value)) return false;
+        if (element.Bounds.Width <= 0 || element.Bounds.Height <= 0) return false;
         return true;
     }
 
-    /// <summary>
-    /// Выполняет команду на элементе
-    /// </summary>
     public async Task<bool> ExecuteCommand(Window window, Command command)
     {
         try
         {
             await Task.Delay(command.DelayMs);
-
-            // CRITICAL: Проверяем фокус окна перед действиями, требующими взаимодействия
             var actionRequiresFocus = command.Action.ToLower() is "click" or "type" or "select" or "mouse_move";
 
             if (actionRequiresFocus)
             {
-                if (!EnsureWindowFocus(window))
-                {
-                    Console.WriteLine($"  ❌ Cannot execute {command.Action}: Target window is not in focus and focus could not be restored!");
-                    return false;
-                }
+                EnsureWindowFocus(window);
             }
 
             switch (command.Action.ToLower())
             {
-                case "click":
-                    return ClickElement(window, command.ElementId, command.X, command.Y);
-
-                case "type":
-                    return TypeText(window, command.ElementId, command.Text);
-
-                case "key":
-                    return PressKey(command.Text);
-
-                case "select":
-                    return SelectItem(window, command.ElementId, command.Text);
-
-                case "mouse_move":
-                    MoveMouse(command.X, command.Y);
-                    return true;
-
-                case "wait":
-                    await Task.Delay(command.DelayMs);
-                    return true;
-
-                case "download":
-                    return await DownloadFile(command.Url, command.LocalFileName);
-
-                case "inspect_screen":
-                    // This command is handled in Program.cs - it signals to capture screenshot
-                    // Return true to indicate acknowledgment
-                    return true;
-
+                case "click": return ClickElement(window, command.ElementId, command.X, command.Y);
+                case "type": return TypeText(window, command.ElementId, command.Text);
+                case "key": return PressKey(command.Text);
+                case "select": return SelectItem(window, command.ElementId, command.Text);
+                case "mouse_move": MoveMouse(command.X, command.Y); return true;
+                case "wait": await Task.Delay(command.DelayMs); return true;
+                case "download": return await DownloadFile(command.Url, command.LocalFileName);
+                case "inspect_screen": return true;
                 case "read_clipboard":
-                    var clipboardContent = GetClipboardText();
-                    Console.WriteLine($"  📋 Read clipboard: {clipboardContent.Length} characters");
+                    GetClipboardText();
+                    Console.WriteLine($"  📋 Read clipboard");
                     return true;
-
                 case "write_clipboard":
-                    if (string.IsNullOrEmpty(command.Text))
-                    {
-                        Console.WriteLine("  ❌ write_clipboard requires text parameter");
-                        return false;
-                    }
                     return SetClipboardText(command.Text);
 
                 // OS / System Operations
@@ -742,194 +588,123 @@ public class UIAutomationService : IDisposable
 
     private bool ClickElement(Window window, string elementId, int x = 0, int y = 0)
     {
-        // COORDINATE-BASED CLICK (резервный метод)
-        if (string.IsNullOrEmpty(elementId) && x > 0 && y > 0)
-        {
-            Console.WriteLine($"  → Clicking by coordinates: ({x}, {y})");
-            try
-            {
-                FlaUI.Core.Input.Mouse.Click(new System.Drawing.Point(x, y));
-                Console.WriteLine($"  ✅ Coordinate click successful");
-                return true;
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"  ❌ Coordinate click failed: {ex.Message}");
-                return false;
-            }
-        }
-
-        // ELEMENT-BASED CLICK (основной метод)
         var element = FindElementById(window, elementId);
         if (element == null)
         {
-            Console.WriteLine($"  ❌ Element not found: {elementId}");
-
-            // Если есть координаты в Bounds, пробуем кликнуть по ним как fallback
             if (x > 0 && y > 0)
             {
-                Console.WriteLine($"  → Trying fallback: Coordinate click ({x}, {y})");
                 try
                 {
                     FlaUI.Core.Input.Mouse.Click(new System.Drawing.Point(x, y));
-                    Console.WriteLine($"  ✅ Fallback coordinate click successful");
+                    Console.WriteLine($"  ✅ Clicked coordinates ({x}, {y})");
                     return true;
                 }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"  ❌ Fallback click failed: {ex.Message}");
-                }
+                catch { return false; }
             }
-
             return false;
         }
 
         element.Click();
-        Console.WriteLine($"  ✅ Element click successful");
+        Console.WriteLine($"  ✅ Element clicked");
         return true;
     }
 
+    /// <summary>
+    /// Hybrid Strategy: Clipboard Injection (Fast) -> Fallback to Enforced Layout Typing (Reliable)
+    /// </summary>
     private bool TypeText(Window window, string elementId, string text)
     {
         var element = FindElementById(window, elementId);
         if (element == null) return false;
 
-        const int MaxRetries = 2;
-        const int CharDelayMs = 75; // Increased to 75ms - Notepad sometimes needs extra time to process chars
+        element.Focus();
+        Thread.Sleep(100);
 
-        for (int attempt = 1; attempt <= MaxRetries; attempt++)
+        // --- STRATEGY 1: CLIPBOARD INJECTION (Best for speed and layout independence) ---
+        Console.WriteLine("  ⚡ Trying Clipboard Injection...");
+        string? originalClipboard = null;
+        try { originalClipboard = TextCopy.ClipboardService.GetText(); } catch { }
+
+        try
         {
-            element.Focus();
-            Thread.Sleep(150); // Increased focus delay
+            TextCopy.ClipboardService.SetText(text);
+            Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_V);
+            Thread.Sleep(100);
 
-            // МЕДЛЕННЫЙ ПОСИМВОЛЬНЫЙ ВВОД для надежности
-            foreach (char c in text)
+            if (VerifyText(element, text))
             {
-                Keyboard.Type(c.ToString());
-                Thread.Sleep(CharDelayMs);
-            }
-
-            Thread.Sleep(100); // Wait for text to be processed
-
-            // Verify that text was typed correctly
-            string currentValue = GetElementValue(element);
-
-            // ALWAYS show what was actually typed for debugging
-            Console.WriteLine($"  ✍️  Typed {text.Length} characters: \"{text}\"");
-            Console.WriteLine($"     Verification: Current value = \"{currentValue}\" (total {currentValue.Length} chars)");
-
-            // Strict verification: text must be exactly at the end (exact match)
-            // We allow the currentValue to be longer (prefix content), but the typed text must be complete
-            if (currentValue.EndsWith(text, StringComparison.Ordinal))
-            {
-                Console.WriteLine($"     ✅ Text verified successfully");
+                Console.WriteLine("     ✅ Clipboard injection successful");
+                // Restore clipboard (optional, polite behavior)
+                if (originalClipboard != null) try { TextCopy.ClipboardService.SetText(originalClipboard); } catch { }
                 return true;
             }
-            else
-            {
-                // Text verification failed
-                Console.WriteLine($"     ❌ VERIFICATION FAILED!");
-                Console.WriteLine($"     Expected: \"{text}\"");
-                Console.WriteLine($"     Got:      \"{currentValue}\"");
+        }
+        catch { }
 
-                if (attempt < MaxRetries)
-                {
-                    Console.WriteLine($"  ⚠️  Retrying (attempt {attempt}/{MaxRetries})...");
+        // --- STRATEGY 2: FORCE ENGLISH LAYOUT + TYPING (Fallback) ---
+        Console.WriteLine("  ⚠️  Clipboard failed. Trying Force English Layout...");
 
-                    // Clear and try again
-                    element.Focus();
-                    Thread.Sleep(100);
-                    Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_A);
-                    Thread.Sleep(50);
-                    Keyboard.Type(VirtualKeyShort.DELETE);
-                    Thread.Sleep(100);
-                }
-                else
-                {
-                    Console.WriteLine($"  ❌ Final attempt failed - giving up after {MaxRetries} attempts");
-                    // Still return true to not break the flow - partial success is better than failure
-                    return true;
-                }
-            }
+        // Force layout switch on the target window
+        var handle = window.Properties.NativeWindowHandle.ValueOrDefault;
+        if (handle != IntPtr.Zero)
+        {
+            PostMessage(handle, WM_INPUTLANGCHANGEREQUEST, IntPtr.Zero, LoadKeyboardLayout(LANG_EN_US, KLF_ACTIVATE));
+            Thread.Sleep(50); // Wait for switch
         }
 
-        return true;
+        // Clear field first if possible (Ctrl+A, Del)
+        Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_A);
+        Keyboard.Type(VirtualKeyShort.DELETE);
+
+        // Type normally
+        Keyboard.Type(text);
+        Thread.Sleep(100);
+
+        if (VerifyText(element, text))
+        {
+            Console.WriteLine("     ✅ Typed successfully (ENG Layout)");
+            return true;
+        }
+
+        Console.WriteLine("     ❌ All typing methods failed");
+        return false;
+    }
+
+    private bool VerifyText(AutomationElement element, string expected)
+    {
+        string val = GetElementValue(element);
+        return val.Contains(expected, StringComparison.Ordinal);
     }
 
     private bool PressKey(string keyCommand)
     {
         try
         {
-            // Поддержка комбинаций клавиш и специальных клавиш
             switch (keyCommand.ToLower())
             {
-                case "ctrl+a":
-                    Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_A);
-                    Console.WriteLine("  → Pressed Ctrl+A (Select All)");
-                    break;
-
-                case "delete":
-                    Keyboard.Type(VirtualKeyShort.DELETE);
-                    Console.WriteLine("  → Pressed Delete");
-                    break;
-
-                case "backspace":
-                    Keyboard.Type(VirtualKeyShort.BACK);
-                    Console.WriteLine("  → Pressed Backspace");
-                    break;
-
-                case "enter":
-                    Keyboard.Type(VirtualKeyShort.RETURN);
-                    Console.WriteLine("  → Pressed Enter");
-                    break;
-
-                case "ctrl+c":
-                    Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_C);
-                    Console.WriteLine("  → Pressed Ctrl+C (Copy)");
-                    break;
-
-                case "ctrl+v":
-                    Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_V);
-                    Console.WriteLine("  → Pressed Ctrl+V (Paste)");
-                    break;
-
-                case "ctrl+x":
-                    Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_X);
-                    Console.WriteLine("  → Pressed Ctrl+X (Cut)");
-                    break;
-
-                case "escape":
-                case "esc":
-                    Keyboard.Type(VirtualKeyShort.ESCAPE);
-                    Console.WriteLine("  → Pressed Escape");
-                    break;
-
-                default:
-                    Console.WriteLine($"  ⚠️  Unknown key command: {keyCommand}");
-                    return false;
+                case "enter": Keyboard.Type(VirtualKeyShort.RETURN); break;
+                case "esc": Keyboard.Type(VirtualKeyShort.ESCAPE); break;
+                case "backspace": Keyboard.Type(VirtualKeyShort.BACK); break;
+                case "delete": Keyboard.Type(VirtualKeyShort.DELETE); break;
+                case "win": Keyboard.Type(VirtualKeyShort.LWIN); break;
+                case "ctrl+a": Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_A); break;
+                case "ctrl+c": Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_C); break;
+                case "ctrl+v": Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_V); break;
+                default: Console.WriteLine($"Unknown key: {keyCommand}"); return false;
             }
-
-            Thread.Sleep(100); // Небольшая пауза после нажатия
             return true;
         }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"  ❌ Error pressing key '{keyCommand}': {ex.Message}");
-            return false;
-        }
+        catch { return false; }
     }
 
     private bool SelectItem(Window window, string elementId, string itemText)
     {
         var element = FindElementById(window, elementId);
-        if (element == null) return false;
-
-        if (element.Patterns.SelectionItem.IsSupported)
+        if (element != null && element.Patterns.SelectionItem.IsSupported)
         {
             element.Patterns.SelectionItem.Pattern.Select();
             return true;
         }
-
         return false;
     }
 
@@ -940,134 +715,45 @@ public class UIAutomationService : IDisposable
 
     private AutomationElement? FindElementById(Window window, string id)
     {
-        // Сначала проверяем кеш
-        if (_elementCache.TryGetValue(id, out var cachedElement))
-        {
-            return cachedElement;
-        }
-
-        // Если не в кеше, ищем по AutomationId
-        try
-        {
-            return window.FindFirstDescendant(cf => cf.ByAutomationId(id));
-        }
-        catch
-        {
-            return null;
-        }
+        if (_elementCache.TryGetValue(id, out var cachedElement)) return cachedElement;
+        try { return window.FindFirstDescendant(cf => cf.ByAutomationId(id)); } catch { return null; }
     }
 
-    /// <summary>
-    /// Downloads a file from URL to local Downloads folder
-    /// </summary>
     private async Task<bool> DownloadFile(string url, string localFileName)
     {
-        if (string.IsNullOrEmpty(url))
-        {
-            Console.WriteLine("❌ Download command missing URL.");
-            return false;
-        }
-
-        if (string.IsNullOrEmpty(localFileName))
-        {
-            // Extract filename from URL if not specified
-            localFileName = Path.GetFileName(new Uri(url).LocalPath);
-            if (string.IsNullOrEmpty(localFileName))
-            {
-                localFileName = "downloaded_file";
-            }
-        }
-
-        // Determine save path (Downloads folder)
-        var downloadsPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            "Downloads"
-        );
-        var fullPath = Path.Combine(downloadsPath, localFileName);
-
         try
         {
-            Console.WriteLine($"  → Downloading from {url}");
-            Console.WriteLine($"  → Saving to {fullPath}");
+            var downloadsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+            var fullPath = Path.Combine(downloadsPath, string.IsNullOrEmpty(localFileName) ? "downloaded_file" : localFileName);
 
             var response = await _httpClient.GetAsync(url);
             response.EnsureSuccessStatusCode();
-
-            await using (var fs = new FileStream(fullPath, FileMode.Create, FileAccess.Write, FileShare.None))
-            {
-                await response.Content.CopyToAsync(fs);
-            }
-
-            Console.WriteLine($"  ✅ File downloaded successfully");
+            await using var fs = new FileStream(fullPath, FileMode.Create);
+            await response.Content.CopyToAsync(fs);
+            Console.WriteLine($"  ✅ Downloaded to {fullPath}");
             return true;
-        }
-        catch (HttpRequestException httpEx)
-        {
-            Console.WriteLine($"  ❌ HTTP error during download: {httpEx.Message}");
-            return false;
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"  ❌ Error downloading file: {ex.Message}");
+            Console.WriteLine($"  ❌ Download failed: {ex.Message}");
             return false;
         }
     }
 
-    /// <summary>
-    /// Gets text from clipboard using TextCopy library (handles STA thread automatically)
-    /// </summary>
     public string GetClipboardText()
     {
-        try
-        {
-            var clipboardText = TextCopy.ClipboardService.GetText() ?? "";
-            LastClipboardContent = clipboardText;
-            return clipboardText;
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"  ❌ Error reading clipboard: {ex.Message}");
-            LastClipboardContent = "";
-            return "";
-        }
+        try { LastClipboardContent = TextCopy.ClipboardService.GetText() ?? ""; return LastClipboardContent; }
+        catch { return ""; }
     }
 
-    /// <summary>
-    /// Sets text to clipboard using TextCopy library (handles STA thread automatically)
-    /// </summary>
     public bool SetClipboardText(string text)
     {
-        try
-        {
-            TextCopy.ClipboardService.SetText(text);
-            Console.WriteLine($"  ✅ Clipboard set ({text.Length} characters)");
-            return true;
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"  ❌ Error writing to clipboard: {ex.Message}");
-            return false;
-        }
+        try { TextCopy.ClipboardService.SetText(text); return true; }
+        catch { return false; }
     }
 
     public void Dispose()
     {
-        // FINAL CLEANUP: Restore window state
-        try
-        {
-            if (_lastInteractedWindow != null)
-            {
-                var handle = _lastInteractedWindow.Properties.NativeWindowHandle.ValueOrDefault;
-                if (handle != IntPtr.Zero)
-                {
-                    // Restore to Normal (Not TopMost)
-                    SetWindowPos(handle, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
-                    Console.WriteLine("  🧹 Cleanup: Released window from Always-On-Top");
-                }
-            }
-        }
-        catch { /* Ignore cleanup errors */ }
-
         _automation?.Dispose();
         _httpClient?.Dispose();
     }
