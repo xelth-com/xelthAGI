@@ -152,6 +152,12 @@ class LLMService {
 
 **TASK**: ${task}
 
+**BEFORE EACH ACTION**:
+- Parse the task into distinct steps (e.g., "do A, then do B, then do C" = 3 steps)
+- Check your history to see which steps are DONE
+- If ANY step is NOT done, continue working - do NOT set task_completed to true
+- ONLY set task_completed:true when you can confirm EVERY step is completed
+
 **🧠 COGNITIVE CHECK (REQUIRED)**
 Look at the **SYSTEM MEMORY** below.
 1. Does it contain the data you need? (ping result, file content, etc.)
