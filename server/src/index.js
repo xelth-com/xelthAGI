@@ -288,12 +288,15 @@ app.post('/DECIDE', async (req, res) => {
             .replace(/[^a-zA-Z0-9]/g, '_')
             .replace(/_+/g, '_')
             .substring(0, 50);
-        const dateStr = new Date().toISOString().slice(0, 10);
-        const timestamp = Date.now();
-        const sessionName = `${clientId}_${safeTaskName}_${timestamp}`;
 
-        // Update per-client state
-        clientState.sessionName = sessionName;
+        // Reuse existing sessionName if task hasn't changed, otherwise create new one
+        let sessionName = clientState.sessionName;
+        if (!sessionName || clientState.task !== request.Task) {
+            const timestamp = Date.now();
+            sessionName = `${clientId}_${safeTaskName}_${timestamp}`;
+            clientState.sessionName = sessionName;
+            clientState.task = request.Task;
+        }
 
         // Handle Shadow Debug Screenshot (Only in DEBUG mode)
         let debugScreenshotUrl = null;
