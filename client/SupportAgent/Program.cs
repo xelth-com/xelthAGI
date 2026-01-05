@@ -431,11 +431,18 @@ class Program
                         Console.WriteLine($"  Target: {cmd.Text}");
                         Console.ResetColor();
 
-                        // GUI Confirmation Dialog
-                        DialogResult result = ShowSafetyDialog(
-                            "⚠️ Security Alert: High-Risk Action",
-                            $"The agent wants to execute a high-risk command:\n\nACTION: {cmd.Action.ToUpper()}\nTARGET: {cmd.Text}\n\nDo you want to allow this?"
+                        // GUI Confirmation Dialog - Using Unified Dialog
+                        string userResponse = ShowUnifiedDialog(
+                            "Security Confirmation",
+                            $"⚠️ Agent ID: {_clientId} needs permission",
+                            $"The agent wants to execute a high-risk command:\n\nACTION: {cmd.Action.ToUpper()}\nTARGET: {cmd.Text}\n\nDo you want to allow this?",
+                            DialogMode.FullInteractive
                         );
+
+                        // Parse response: Yes/No/DontKnow or custom text
+                        DialogResult result = userResponse.Equals("Yes", StringComparison.OrdinalIgnoreCase) ? DialogResult.Yes
+                            : userResponse.Equals("No", StringComparison.OrdinalIgnoreCase) ? DialogResult.No
+                            : DialogResult.Cancel;
 
                         if (result == DialogResult.Yes)
                         {
@@ -687,76 +694,7 @@ class Program
 
     // Helper method to show a GUI Input Dialog with Force Foreground
     // Helper method to show a 3-Button Safety Dialog
-    private static DialogResult ShowSafetyDialog(string title, string prompt)
-    {
-        Form promptForm = new Form()
-        {
-            Width = 500,
-            Height = 220,
-            FormBorderStyle = FormBorderStyle.FixedDialog,
-            Text = title,
-            StartPosition = FormStartPosition.CenterScreen,
-            TopMost = true,
-            WindowState = FormWindowState.Normal,
-            MinimizeBox = false,
-            MaximizeBox = false,
-            ShowInTaskbar = true
-        };
-
-        Label textLabel = new Label()
-        {
-            Left = 20,
-            Top = 20,
-            Width = 440,
-            Text = prompt,
-            AutoSize = false,
-            Height = 100
-        };
-
-        Button yesButton = new Button()
-        {
-            Text = "Yes",
-            Left = 160,
-            Width = 100,
-            Top = 140,
-            DialogResult = DialogResult.Yes
-        };
-
-        Button noButton = new Button()
-        {
-            Text = "No",
-            Left = 270,
-            Width = 100,
-            Top = 140,
-            DialogResult = DialogResult.No
-        };
-
-        Button dontKnowButton = new Button()
-        {
-            Text = "Don't Know",
-            Left = 380,
-            Width = 100,
-            Top = 140,
-            DialogResult = DialogResult.Cancel
-        };
-
-        promptForm.Controls.Add(textLabel);
-        promptForm.Controls.Add(yesButton);
-        promptForm.Controls.Add(noButton);
-        promptForm.Controls.Add(dontKnowButton);
-
-        // Aggressively force focus when shown
-        promptForm.Shown += (sender, e) =>
-        {
-            ForceWindowToForeground(promptForm.Handle);
-            promptForm.Activate();
-            promptForm.BringToFront();
-        };
-
-        // Show and wait
-        ForceWindowToForeground(promptForm.Handle);
-        return promptForm.ShowDialog();
-    }
+    // ShowSafetyDialog REMOVED - replaced with ShowUnifiedDialog everywhere
 
     // Unified Dialog supporting 3 modes: FullInteractive, InputOnly, MessageOnly
     private static string ShowUnifiedDialog(string title, string headerText, string contentText, DialogMode mode, int timeoutSeconds = 0)
