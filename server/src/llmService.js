@@ -175,13 +175,15 @@ ${elementsSummary}
 2. Determine the NEXT SINGLE ACTION.
 3. If you see "NO CHANGE" in history multiple times, switch strategy (e.g. use keyboard instead of click).
 4. If the element is not in the list, use "inspect_screen" to see it.
+5. If the goal is achieved (e.g. calculation result found), set "task_completed": true.
 
 **RESPONSE FORMAT (JSON ONLY)**:
 {
     "action": "click|type|key|select|wait|download|inspect_screen|ask_user|read_clipboard|write_clipboard|os_list|os_read|os_delete|os_run|os_kill|os_mkdir|os_write|os_exists|os_getenv|reg_read|reg_write|net_ping|net_port|net_search|switch_window",
     "element_id": "...",
     "text": "...",
-    "reasoning": "Briefly explain why you chose this action."
+    "reasoning": "Briefly explain why you chose this action.",
+    "task_completed": boolean
 }`;
     }
 
