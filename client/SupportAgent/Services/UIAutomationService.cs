@@ -690,11 +690,24 @@ public class UIAutomationService : IDisposable
                 case "ctrl+a": Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_A); break;
                 case "ctrl+c": Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_C); break;
                 case "ctrl+v": Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_V); break;
-                default: Console.WriteLine($"Unknown key: {keyCommand}"); return false;
+                default:
+                    // For any other input, treat as text to type character by character
+                    if (string.IsNullOrEmpty(keyCommand))
+                    {
+                        Console.WriteLine("  ⚠️  Empty key command");
+                        return false;
+                    }
+                    Console.WriteLine($"  ⌨️  Typing text: {keyCommand}");
+                    System.Windows.Forms.SendKeys.SendWait(keyCommand);
+                    return true;
             }
             return true;
         }
-        catch { return false; }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  ❌ PressKey failed: {ex.Message}");
+            return false;
+        }
     }
 
     private bool SelectItem(Window window, string elementId, string itemText)
