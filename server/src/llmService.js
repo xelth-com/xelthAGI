@@ -189,11 +189,14 @@ ${elementsSummary}
 
 **RESPONSE FORMAT (JSON ONLY)**:
 {
+    "steps_total": number (how many steps needed for COMPLETE task),
+    "steps_done": number (how many steps already completed in history),
+    "current_step": "Step X: description of what you're doing now",
     "action": "click|type|key|select|wait|download|inspect_screen|ask_user|read_clipboard|write_clipboard|os_list|os_read|os_delete|os_run|os_kill|os_mkdir|os_write|os_exists|os_getenv|reg_read|reg_write|net_ping|net_port|net_search|switch_window",
     "element_id": "...",
     "text": "...",
-    "reasoning": "Briefly explain why you chose this action.",
-    "task_completed": boolean
+    "reasoning": "Why this action for THIS SPECIFIC STEP",
+    "task_completed": boolean (ONLY true if steps_done === steps_total)
 }`;
     }
 
