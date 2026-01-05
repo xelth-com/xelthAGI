@@ -229,7 +229,18 @@ ${elementsSummary}
     "text": "...",
     "reasoning": "Why this action for THIS SPECIFIC STEP",
     "task_completed": boolean (ONLY true if steps_done === steps_total)
-}`;
+}
+
+**CRITICAL - TASK COMPLETION TIMING**:
+- steps_done = number of steps ALREADY in history (completed and verified)
+- Do NOT count the current action you are about to take
+- Example: If you are typing "100" (final step 4), but it's not in history yet:
+  → steps_done = 3 (previous steps)
+  → task_completed = false (because 3 ≠ 4)
+- On the NEXT turn, after seeing your action in history:
+  → steps_done = 4 (now includes the typing action)
+  → task_completed = true (because 4 === 4)
+- NEVER mark task_completed=true in the same response where you execute the final action`;
     }
 
     _summarizeElements(elements) {
