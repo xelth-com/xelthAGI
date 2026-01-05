@@ -145,17 +145,18 @@ class Program
 
             Console.WriteLine($"Server: {serverUrl}");
 
-            // REPLACED: Console input with GUI Dialog
+            // REPLACED: Console input with GUI Dialog (2-minute timeout)
             task = ShowUnifiedDialog(
-                "XelthAGI Agent - Start",
-                "Hello! I am ready to help.",
-                "Please enter the task you want me to perform:",
-                DialogMode.InputOnly
+                "XelthAGI Agent - Ready",
+                $"🤖 Agent ID: {_clientId}\n\nI am ready to work!",
+                "Please enter your task below:\n\n⏱️ Auto-shutdown in 2 minutes if no task provided.",
+                DialogMode.FullInteractive,
+                timeoutSeconds: 120
             );
 
             if (string.IsNullOrEmpty(task))
             {
-                Console.WriteLine("No task provided. Exiting.");
+                Console.WriteLine("⏱️ Timeout: No task provided. Exiting.");
                 return 0;
             }
 
@@ -338,15 +339,25 @@ class Program
                 {
                     Console.WriteLine("\n✅ Task completed successfully!");
 
-                    // REPLACED: Use unified dialog instead of disappearing notification
-                    // Dialog will auto-close after 10 seconds
+                    // REPLACED: Use unified dialog with 10-second auto-close
+                    // User can request continuation during this time
                     string completionMsg = response.Command?.Message ?? "Task completed successfully.";
-                    ShowUnifiedDialog(
+                    string continueTask = ShowUnifiedDialog(
                         "Task Completed",
-                        "The agent has finished work.",
-                        $"RESULT:\n{completionMsg}",
-                        DialogMode.MessageOnly
+                        $"✅ Agent ID: {_clientId} - Work finished!",
+                        $"RESULT:\n{completionMsg}\n\n💡 You can request additional work below (10s timeout):",
+                        DialogMode.FullInteractive,
+                        timeoutSeconds: 10
                     );
+
+                    // If user entered continuation task, continue working
+                    if (!string.IsNullOrEmpty(continueTask))
+                    {
+                        Console.WriteLine($"\n🔄 Continuation requested: {continueTask}");
+                        task = continueTask;
+                        _actionHistory.Clear(); // Start fresh for new task
+                        continue; // Continue automation loop
+                    }
 
                     return 0;
                 }
@@ -748,7 +759,7 @@ class Program
     }
 
     // Unified Dialog supporting 3 modes: FullInteractive, InputOnly, MessageOnly
-    private static string ShowUnifiedDialog(string title, string headerText, string contentText, DialogMode mode)
+    private static string ShowUnifiedDialog(string title, string headerText, string contentText, DialogMode mode, int timeoutSeconds = 0)
     {
         string resultValue = "";
 
@@ -860,24 +871,48 @@ class Program
         if (mode == DialogMode.MessageOnly) promptForm.Height = 350;
         if (mode == DialogMode.InputOnly) promptForm.Height = 400;
 
-        // Auto-focus logic
+        // Auto-focus logic and timeout handling
         promptForm.Shown += (sender, e) =>
         {
             ForceWindowToForeground(promptForm.Handle);
             promptForm.Activate();
             if (mode != DialogMode.MessageOnly) inputBox.Focus();
 
-            // Auto-close after 10 seconds for MessageOnly mode
-            if (mode == DialogMode.MessageOnly)
+            // Auto-close timer if timeout specified
+            if (timeoutSeconds > 0)
             {
                 var autoCloseTimer = new System.Windows.Forms.Timer();
-                autoCloseTimer.Interval = 10000; // 10 seconds
+                autoCloseTimer.Interval = timeoutSeconds * 1000;
                 autoCloseTimer.Tick += (s, args) =>
                 {
                     autoCloseTimer.Stop();
+                    resultValue = ""; // Timeout = empty result
                     promptForm.Close();
                 };
                 autoCloseTimer.Start();
+
+                // Show countdown in corner (visual feedback)
+                var countdownLabel = new WinFormsLabel()
+                {
+                    Left = 480, Top = 10, Width = 80, Height = 30,
+                    TextAlign = ContentAlignment.MiddleRight,
+                    Font = new Font("Segoe UI", 11, FontStyle.Bold),
+                    ForeColor = Color.OrangeRed,
+                    Text = $"⏱️ {timeoutSeconds}s"
+                };
+                promptForm.Controls.Add(countdownLabel);
+
+                var countdownTimer = new System.Windows.Forms.Timer();
+                int remainingSeconds = timeoutSeconds;
+                countdownTimer.Interval = 1000; // 1 second
+                countdownTimer.Tick += (s, args) =>
+                {
+                    remainingSeconds--;
+                    countdownLabel.Text = $"⏱️ {remainingSeconds}s";
+                    if (remainingSeconds <= 5) countdownLabel.ForeColor = Color.Red;
+                    if (remainingSeconds <= 0) countdownTimer.Stop();
+                };
+                countdownTimer.Start();
             }
         };
 
