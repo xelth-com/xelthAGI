@@ -211,7 +211,13 @@ ${elementsSummary}
 4. If the element is not in the list, use "inspect_screen" to see it. BUT: avoid using "inspect_screen" repeatedly - if you inspected 2-3 times without finding the element, try a different approach (keyboard, switch_window, etc.).
 5. **CRITICAL**: If you just used "os_run" to launch an app (e.g. calc, notepad), IMMEDIATELY use "switch_window" in the NEXT step to focus that app. DO NOT wait or inspect - switch first!
 6. When typing into apps like Calculator or Notepad, use the "key" action (it supports any text, numbers, symbols).
-7. **TASK COMPLETION CHECK**: ONLY set "task_completed": true when you have verified that EVERY part of the task is done. For example: "Open Calculator, calculate 5+3, then open Notepad and type result" requires FOUR steps: (1) open calc, (2) calculate, (3) open notepad, (4) type result. Do NOT mark complete until step 4 is done!
+7. **TEXT INPUT MODES** (for "type" action):
+   - Default: REPLACE mode - clears field and types new text
+   - "APPEND:text" - adds text to END (no clearing)
+   - "PREPEND:text" - adds text to BEGINNING (no clearing)
+   - "REPLACE:text" - explicitly clear and replace
+   Example: If Notepad has "OLD", use "type" with "REPLACE:NEW" to get "NEW", or "APPEND: ADDED" to get "OLD ADDED"
+8. **TASK COMPLETION CHECK**: ONLY set "task_completed": true when you have verified that EVERY part of the task is done. For example: "Open Calculator, calculate 5+3, then open Notepad and type result" requires FOUR steps: (1) open calc, (2) calculate, (3) open notepad, (4) type result. Do NOT mark complete until step 4 is done!
 
 **RESPONSE FORMAT (JSON ONLY)**:
 {

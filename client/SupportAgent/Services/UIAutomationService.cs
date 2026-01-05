@@ -639,6 +639,44 @@ public class UIAutomationService : IDisposable
         element.Focus();
         Thread.Sleep(100);
 
+        // --- SMART TEXT MODE DETECTION ---
+        // APPEND:text  → add to end (no clear)
+        // PREPEND:text → add to beginning (Home, then type)
+        // REPLACE:text → clear and replace (default)
+        // text         → clear and replace (default)
+
+        bool shouldClear = true;
+        bool prependMode = false;
+        string actualText = text;
+
+        if (text.StartsWith("APPEND:", StringComparison.OrdinalIgnoreCase))
+        {
+            shouldClear = false;
+            actualText = text.Substring(7); // Remove "APPEND:" prefix
+            Console.WriteLine($"  📌 APPEND mode - adding to end");
+            Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.END); // Jump to end
+            Thread.Sleep(50);
+        }
+        else if (text.StartsWith("PREPEND:", StringComparison.OrdinalIgnoreCase))
+        {
+            shouldClear = false;
+            prependMode = true;
+            actualText = text.Substring(8); // Remove "PREPEND:" prefix
+            Console.WriteLine($"  📌 PREPEND mode - adding to beginning");
+            Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.HOME); // Jump to start
+            Thread.Sleep(50);
+        }
+        else if (text.StartsWith("REPLACE:", StringComparison.OrdinalIgnoreCase))
+        {
+            actualText = text.Substring(8); // Remove "REPLACE:" prefix
+            Console.WriteLine($"  📌 REPLACE mode - clearing and replacing");
+        }
+        else
+        {
+            // Default behavior: REPLACE
+            Console.WriteLine($"  📌 Default REPLACE mode - clearing field");
+        }
+
         // --- STRATEGY 1: CLIPBOARD INJECTION (Best for speed and layout independence) ---
         Console.WriteLine("  ⚡ Trying Clipboard Injection...");
         string? originalClipboard = null;
@@ -646,11 +684,19 @@ public class UIAutomationService : IDisposable
 
         try
         {
-            TextCopy.ClipboardService.SetText(text);
+            TextCopy.ClipboardService.SetText(actualText);
+
+            // Clear before paste if needed
+            if (shouldClear)
+            {
+                Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_A);
+                Thread.Sleep(50);
+            }
+
             Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_V);
             Thread.Sleep(100);
 
-            if (VerifyText(element, text))
+            if (VerifyText(element, actualText))
             {
                 Console.WriteLine("     ✅ Clipboard injection successful");
                 // Restore clipboard (optional, polite behavior)
@@ -671,15 +717,19 @@ public class UIAutomationService : IDisposable
             Thread.Sleep(50); // Wait for switch
         }
 
-        // Clear field first if possible (Ctrl+A, Del)
-        Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_A);
-        Keyboard.Type(VirtualKeyShort.DELETE);
+        // Clear field first if needed
+        if (shouldClear)
+        {
+            Keyboard.TypeSimultaneously(VirtualKeyShort.CONTROL, VirtualKeyShort.KEY_A);
+            Keyboard.Type(VirtualKeyShort.DELETE);
+            Thread.Sleep(50);
+        }
 
         // Type normally
-        Keyboard.Type(text);
+        Keyboard.Type(actualText);
         Thread.Sleep(100);
 
-        if (VerifyText(element, text))
+        if (VerifyText(element, actualText))
         {
             Console.WriteLine("     ✅ Typed successfully (ENG Layout)");
             return true;
