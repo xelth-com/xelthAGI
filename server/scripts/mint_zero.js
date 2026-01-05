@@ -28,8 +28,13 @@ try {
         process.exit(1);
     }
 
-    fs.writeFileSync(tokenPath, token);
+    // Encode token as base64 for safe storage in text file
+    const tokenBase64 = Buffer.from(token, 'utf8').toString('base64');
+    fs.writeFileSync(tokenPath, tokenBase64, { encoding: 'utf8', flag: 'w' });
+
     console.log(`💾 Saved to: ${tokenPath}`);
+    console.log(`✅ Token stored as base64 (${tokenBase64.length} chars)`);
+    console.log(`   Original token length: ${token.length} bytes`);
     console.log("   Ready for 'fast.bat'!");
 
 } catch (e) {

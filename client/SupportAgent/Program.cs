@@ -233,9 +233,6 @@ class Program
         }
 
         Console.WriteLine($"Task: {task}");
-
-        // STARTUP NOTIFICATION (non-blocking)
-        ShowStartupNotification(task);
         Console.WriteLine("Starting automation...\n");
 
         var maxSteps = 20;
@@ -244,6 +241,7 @@ class Program
         string previousTitle = "";
         int previousElementCount = 0;
         string previousContentHash = "";
+        string lastKnownWindowTitle = ""; // Track last window to prevent focus loss
 
         while (stepCount < maxSteps)
         {
@@ -268,7 +266,9 @@ class Program
                 var uiState = automationService.GetWindowState(automationService.CurrentWindow);
                 Console.WriteLine($"  → Found {uiState.Elements.Count} UI elements");
 
+                // Remember current window title
                 previousTitle = uiState.WindowTitle;
+                lastKnownWindowTitle = uiState.WindowTitle;
                 previousElementCount = uiState.Elements.Count;
 
                 var textElements = uiState.Elements.Where(e =>
@@ -461,12 +461,49 @@ class Program
 
                     await Task.Delay(300);
 
+                    // Auto-focus after launching new application
+                    if (cmd.Action.ToLower() == "os_run" && success && string.IsNullOrEmpty(targetApp))
+                    {
+                        await Task.Delay(1500); // Wait for app to start
+                        Console.WriteLine("  🔄 Auto-switching to newly launched window...");
+
+                        // Try to find window by process name (e.g., "calc" -> "Rechner")
+                        var appName = cmd.Text.Replace(".exe", "");
+                        var foundWindow = automationService.FindWindow(appName);
+
+                        if (foundWindow == null)
+                        {
+                            // Fallback: Try to get active window
+                            foundWindow = automationService.AttachToActiveWindow();
+                        }
+
+                        if (foundWindow != null)
+                        {
+                            string newWindowName = GetWindowTitleSafe(foundWindow);
+                            Console.ForegroundColor = ConsoleColor.Cyan;
+                            Console.WriteLine($"  ✅ Switched to: {newWindowName}");
+                            Console.ResetColor();
+                        }
+                    }
+
                     if (automationService.CurrentWindow == null)
                     {
                         Console.WriteLine("  ⚠️  Target window lost focus! Attempting to restore...");
                         if (!string.IsNullOrEmpty(targetApp))
                         {
                             automationService.FindWindow(targetApp);
+                        }
+                        else if (!string.IsNullOrEmpty(lastKnownWindowTitle))
+                        {
+                            // Try to find last known window instead of random active window
+                            Console.WriteLine($"  🔍 Looking for last window: {lastKnownWindowTitle}");
+                            automationService.FindWindow(lastKnownWindowTitle);
+
+                            if (automationService.CurrentWindow == null)
+                            {
+                                // Last resort: attach to active window
+                                automationService.AttachToActiveWindow();
+                            }
                         }
                         else
                         {
@@ -877,108 +914,6 @@ class Program
         }
     }
 
-    // STARTUP NOTIFICATION (Non-blocking)
-    private static void ShowStartupNotification(string task)
-    {
-        Task.Run(() =>
-        {
-            Form notificationForm = new Form()
-            {
-                Width = 500,
-                Height = 180,
-                FormBorderStyle = FormBorderStyle.FixedDialog,
-                Text = "Agent Started",
-                StartPosition = FormStartPosition.CenterScreen,
-                TopMost = true,
-                MaximizeBox = false,
-                MinimizeBox = false,
-                ShowInTaskbar = true
-            };
-
-            Label messageLabel = new Label()
-            {
-                Left = 20,
-                Top = 20,
-                Width = 440,
-                Height = 80,
-                Text = $"Hello! I'm your agent.\n\nTask: {task}\n\nStarting work now...",
-                Font = new Font("Segoe UI", 10)
-            };
-
-            Button okButton = new Button()
-            {
-                Text = "OK",
-                Left = 200,
-                Width = 100,
-                Top = 110,
-                DialogResult = DialogResult.OK
-            };
-
-            notificationForm.Controls.Add(messageLabel);
-            notificationForm.Controls.Add(okButton);
-            notificationForm.AcceptButton = okButton;
-
-            // Auto-close after 3 seconds
-            System.Threading.Timer autoClose = null;
-            autoClose = new System.Threading.Timer(_ =>
-            {
-                notificationForm.Invoke((Action)(() => notificationForm.Close()));
-                autoClose?.Dispose();
-            }, null, 3000, Timeout.Infinite);
-
-            notificationForm.ShowDialog();
-        });
-    }
-
-    // COMPLETION NOTIFICATION (Non-blocking)
-    private static void ShowCompletionNotification(string task, string result)
-    {
-        Form notificationForm = new Form()
-        {
-            Width = 500,
-            Height = 200,
-            FormBorderStyle = FormBorderStyle.FixedDialog,
-            Text = "Task Completed",
-            StartPosition = FormStartPosition.CenterScreen,
-            TopMost = true,
-            MaximizeBox = false,
-            MinimizeBox = false,
-            ShowInTaskbar = true
-        };
-
-        Label messageLabel = new Label()
-        {
-            Left = 20,
-            Top = 20,
-            Width = 440,
-            Height = 100,
-            Text = $"Task: {task}\n\nResult: {result}\n\nThank you! Goodbye.",
-            Font = new Font("Segoe UI", 10)
-        };
-
-        Button okButton = new Button()
-        {
-            Text = "OK",
-            Left = 200,
-            Width = 100,
-            Top = 130,
-            DialogResult = DialogResult.OK
-        };
-
-        notificationForm.Controls.Add(messageLabel);
-        notificationForm.Controls.Add(okButton);
-        notificationForm.AcceptButton = okButton;
-
-        // Auto-close after 3 seconds
-        System.Threading.Timer autoClose = null;
-        autoClose = new System.Threading.Timer(_ =>
-        {
-            notificationForm.Invoke((Action)(() => notificationForm.Close()));
-            autoClose?.Dispose();
-        }, null, 3000, Timeout.Infinite);
-
-        notificationForm.ShowDialog();
-    }
 
     // CONNECTION LOST DIALOG (Blocking)
     private static bool ShowConnectionLostDialog()

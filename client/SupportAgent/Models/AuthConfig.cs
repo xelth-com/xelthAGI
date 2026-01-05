@@ -1,5 +1,3 @@
-using System.Linq;
-
 namespace SupportAgent.Models;
 
 public static class AuthConfig
@@ -62,18 +60,18 @@ public static class AuthConfig
             string slot = TOKEN_SLOT;
 
             // Логика: Если это НЕ патченный exe (dotnet run или билд без токена)
-            if (string.IsNullOrWhiteSpace(slot) || slot.Contains("XELTH_TOKEN_SLOT_"))
+            // Проверяем что токен начинается с "xlt_" (валидный формат)
+            if (string.IsNullOrWhiteSpace(slot) || slot.Contains("XELTH_TOKEN_SLOT_") || !slot.Trim().StartsWith("xlt_"))
             {
                 // Пытаемся прочитать локальный dev-токен
                 string devTokenPath = "dev_token.txt";
 
                 if (System.IO.File.Exists(devTokenPath))
                 {
-                    // Возвращаем токен из файла (ID: 00000000)
-                    var token = System.IO.File.ReadAllText(devTokenPath);
-                    // Remove all control characters including newlines, carriage returns, etc.
-                    token = new string(token.Where(c => !char.IsControl(c)).ToArray());
-                    return token.Trim();
+                    // Токен хранится в base64 для безопасности
+                    var base64 = System.IO.File.ReadAllText(devTokenPath).Trim();
+                    var bytes = System.Convert.FromBase64String(base64);
+                    return System.Text.Encoding.UTF8.GetString(bytes);
                 }
 
                 return "DEV_TOKEN_MISSING";
