@@ -379,12 +379,18 @@ class Program
                     );
 
                     // If user entered continuation task, continue working
-                    if (!string.IsNullOrEmpty(continueTask))
+                    // TIMEOUT = just timeout, not a real task continuation
+                    if (!string.IsNullOrEmpty(continueTask) && continueTask != "TIMEOUT")
                     {
                         Console.WriteLine($"\n🔄 Continuation requested: {continueTask}");
                         task = continueTask;
                         _actionHistory.Clear(); // Start fresh for new task
                         continue; // Continue automation loop
+                    }
+
+                    if (continueTask == "TIMEOUT")
+                    {
+                        Console.WriteLine("⏱️ No continuation - auto-closing after timeout.");
                     }
 
                     return 0;
@@ -839,8 +845,16 @@ class Program
         // Auto-focus logic and timeout handling
         promptForm.Shown += (sender, e) =>
         {
+            // AGGRESSIVE: Force window to absolute foreground
             ForceWindowToForeground(promptForm.Handle);
+            Thread.Sleep(50);
+            ForceWindowToForeground(promptForm.Handle); // Call twice for reliability
             promptForm.Activate();
+            promptForm.BringToFront();
+
+            // Ensure TopMost is really applied
+            SetWindowPos(promptForm.Handle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+
             if (mode != DialogMode.MessageOnly) inputBox.Focus();
 
             // Auto-close timer if timeout specified
