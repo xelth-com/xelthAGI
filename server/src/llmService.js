@@ -174,8 +174,10 @@ ${elementsSummary}
 1. Analyze the UI Elements and History.
 2. Determine the NEXT SINGLE ACTION.
 3. If you see "NO CHANGE" in history multiple times, switch strategy (e.g. use keyboard instead of click).
-4. If the element is not in the list, use "inspect_screen" to see it.
-5. If the goal is achieved (e.g. calculation result found), set "task_completed": true.
+4. If the element is not in the list, use "inspect_screen" to see it. BUT: avoid using "inspect_screen" repeatedly - if you inspected 2-3 times without finding the element, try a different approach (keyboard, switch_window, etc.).
+5. **CRITICAL**: If you just used "os_run" to launch an app (e.g. calc, notepad), IMMEDIATELY use "switch_window" in the NEXT step to focus that app. DO NOT wait or inspect - switch first!
+6. When typing into apps like Calculator or Notepad, use the "key" action with individual keys instead of "type" if typing fails.
+7. If the goal is achieved (e.g. calculation result found), set "task_completed": true.
 
 **RESPONSE FORMAT (JSON ONLY)**:
 {
