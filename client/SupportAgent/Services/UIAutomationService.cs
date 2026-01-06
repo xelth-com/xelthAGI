@@ -943,10 +943,102 @@ public class UIAutomationService : IDisposable
         FlaUI.Core.Input.Mouse.MoveTo(new System.Drawing.Point(x, y));
     }
 
+    /// <summary>
+    /// Resilient UI Search with Cascade Strategy (Localization-Resistant)
+    /// Priority: AutomationID → Name (Exact) → Name (Contains) → Smart Menu Fallback
+    /// </summary>
     private AutomationElement? FindElementById(Window window, string id)
     {
-        if (_elementCache.TryGetValue(id, out var cachedElement)) return cachedElement;
-        try { return window.FindFirstDescendant(cf => cf.ByAutomationId(id)); } catch { return null; }
+        // Check cache first
+        if (_elementCache.TryGetValue(id, out var cachedElement))
+        {
+            Console.WriteLine($"  🔍 [Cache Hit] Element '{id}'");
+            return cachedElement;
+        }
+
+        AutomationElement? element = null;
+        string strategy = "";
+
+        // Strategy 1: AutomationID (language-independent, most reliable)
+        try
+        {
+            element = window.FindFirstDescendant(cf => cf.ByAutomationId(id));
+            if (element != null)
+            {
+                strategy = "AutomationID";
+                Console.WriteLine($"  ✅ Found element using {strategy}: '{id}'");
+                return element;
+            }
+        }
+        catch { }
+
+        // Strategy 2: Name (Exact match, case-sensitive)
+        try
+        {
+            element = window.FindFirstDescendant(cf => cf.ByName(id));
+            if (element != null)
+            {
+                strategy = "Name (Exact)";
+                Console.WriteLine($"  ✅ Found element '{element.Name}' using {strategy}");
+                return element;
+            }
+        }
+        catch { }
+
+        // Strategy 3: Name (Contains, case-insensitive)
+        // Note: FlaUI doesn't support "contains" in condition factory, so we use FindAll + LINQ
+        try
+        {
+            var allElements = window.FindAllDescendants();
+            element = allElements.FirstOrDefault(e =>
+                !string.IsNullOrEmpty(e.Name) &&
+                e.Name.Contains(id, StringComparison.OrdinalIgnoreCase));
+            if (element != null)
+            {
+                strategy = "Name (Contains)";
+                Console.WriteLine($"  ✅ Found element '{element.Name}' using {strategy}");
+                return element;
+            }
+        }
+        catch { }
+
+        // Strategy 4: Smart Menu Fallback (index-based, works across all languages)
+        // Common menu keywords and their typical positions
+        var menuFallbacks = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+        {
+            { "File", 0 },     { "Datei", 0 },    { "Fichier", 0 },  { "Файл", 0 },
+            { "Edit", 1 },     { "Bearbeiten", 1 }, { "Édition", 1 }, { "Правка", 1 },
+            { "View", 2 },     { "Ansicht", 2 },  { "Affichage", 2 }, { "Вид", 2 },
+            { "Insert", 3 },   { "Einfügen", 3 }, { "Insertion", 3 }, { "Вставка", 3 },
+            { "Format", 4 },   { "Format", 4 },   { "Format", 4 },   { "Формат", 4 },
+            { "Tools", 5 },    { "Extras", 5 },   { "Outils", 5 },   { "Сервис", 5 },
+            { "Help", 6 },     { "Hilfe", 6 },    { "Aide", 6 },     { "Справка", 6 }
+        };
+
+        if (menuFallbacks.TryGetValue(id, out int menuIndex))
+        {
+            try
+            {
+                // Find MenuBar or Menu container
+                var menuBar = window.FindFirstDescendant(cf => cf.ByControlType(FlaUI.Core.Definitions.ControlType.MenuBar));
+                if (menuBar != null)
+                {
+                    var menuItems = menuBar.FindAllChildren();
+                    if (menuItems != null && menuIndex < menuItems.Length)
+                    {
+                        element = menuItems[menuIndex];
+                        strategy = $"Smart Menu Fallback (Index {menuIndex})";
+                        Console.WriteLine($"  ✅ Found menu item '{element.Name}' using {strategy} for query '{id}'");
+                        return element;
+                    }
+                }
+            }
+            catch { }
+        }
+
+        // All strategies failed
+        Console.WriteLine($"  ❌ Element '{id}' not found (tried all strategies)");
+        return null;
     }
 
     private async Task<bool> DownloadFile(string url, string localFileName)
