@@ -91,8 +91,26 @@ public class UIAutomationService : IDisposable
     public Window? FindWindow(string processNameOrTitle)
     {
         var desktop = _automation.GetDesktop();
-        var windows = desktop.FindAllChildren(cf => cf.ByControlType(ControlType.Window));
 
+        // FIRST: Try top-level windows (fast path)
+        var windows = desktop.FindAllChildren(cf => cf.ByControlType(ControlType.Window));
+        var result = SearchWindowsForMatch(windows, processNameOrTitle);
+        if (result != null)
+        {
+            CurrentWindow = result;
+            return CurrentWindow;
+        }
+
+        // SECOND: Try recursive search for child/modal dialogs (slower but catches more)
+        Console.WriteLine($"  🔍 Top-level search failed, trying recursive search for child windows...");
+        var allWindows = desktop.FindAllDescendants(cf => cf.ByControlType(ControlType.Window));
+        result = SearchWindowsForMatch(allWindows, processNameOrTitle);
+        CurrentWindow = result;
+        return CurrentWindow;
+    }
+
+    private Window? SearchWindowsForMatch(AutomationElement[] windows, string processNameOrTitle)
+    {
         Window? processPartialMatch = null;
         Window? titleFallbackMatch = null;
 
@@ -109,15 +127,13 @@ public class UIAutomationService : IDisposable
                 {
                     if (IsCalculator(processNameOrTitle, title))
                     {
-                        CurrentWindow = window.AsWindow();
-                        return CurrentWindow;
+                        return window.AsWindow();
                     }
                 }
 
                 if (processName.Equals(processNameOrTitle, StringComparison.OrdinalIgnoreCase))
                 {
-                    CurrentWindow = window.AsWindow();
-                    return CurrentWindow;
+                    return window.AsWindow();
                 }
 
                 if (processPartialMatch == null && processName.StartsWith(processNameOrTitle, StringComparison.OrdinalIgnoreCase))
@@ -130,8 +146,7 @@ public class UIAutomationService : IDisposable
                 {
                     if (processPartialMatch == null)
                     {
-                        CurrentWindow = window.AsWindow();
-                        return CurrentWindow;
+                        return window.AsWindow();
                     }
                 }
 
@@ -144,8 +159,7 @@ public class UIAutomationService : IDisposable
             catch { }
         }
 
-        CurrentWindow = processPartialMatch ?? titleFallbackMatch;
-        return CurrentWindow;
+        return processPartialMatch ?? titleFallbackMatch;
     }
 
     private bool IsCalculator(string search, string title)
@@ -275,9 +289,10 @@ public class UIAutomationService : IDisposable
     {
         try
         {
+            // ALWAYS capture full desktop for AI context.
+            // Window-only captures often miss popups or render black/empty for some Win32 apps.
             var desktop = _automation.GetDesktop();
-            var target = CurrentWindow ?? desktop;
-            return CaptureElement(target, quality);
+            return CaptureElement(desktop, quality);
         }
         catch
         {
@@ -294,6 +309,50 @@ public class UIAutomationService : IDisposable
         catch
         {
             return "";
+        }
+    }
+
+    /// <summary>
+    /// Captures the full desktop and saves it to a file (for coarse-to-fine vision)
+    /// ASYNC: Uses fire-and-forget pattern to avoid blocking main thread on disk I/O
+    /// </summary>
+    public bool CaptureScreenToFile(string filePath)
+    {
+        try
+        {
+            var desktop = _automation.GetDesktop();
+            using var image = FlaUI.Core.Capturing.Capture.Element(desktop).Bitmap;
+
+            // CRITICAL: Clone bitmap before passing to background thread
+            // Original bitmap will be disposed, so we need an independent copy
+            Bitmap imageCopy = (Bitmap)image.Clone();
+
+            // Fire-and-forget async save (non-blocking)
+            Task.Run(() =>
+            {
+                try
+                {
+                    imageCopy.Save(filePath, ImageFormat.Png);
+                    Console.WriteLine($"  📷 [Async] Screenshot saved to: {filePath}");
+                }
+                catch (Exception ex)
+                {
+                    // Suppress I/O errors to avoid crashing agent on disk issues
+                    Console.WriteLine($"  ⚠️ [Async] Screenshot save failed: {ex.Message}");
+                }
+                finally
+                {
+                    // Always dispose the clone in background thread
+                    imageCopy.Dispose();
+                }
+            });
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  ❌ Screenshot capture failed: {ex.Message}");
+            return false;
         }
     }
 
@@ -782,6 +841,18 @@ public class UIAutomationService : IDisposable
     {
         try
         {
+            // Force English keyboard layout before typing
+            var currentWindow = CurrentWindow;
+            if (currentWindow != null)
+            {
+                var handle = currentWindow.Properties.NativeWindowHandle.ValueOrDefault;
+                if (handle != IntPtr.Zero)
+                {
+                    PostMessage(handle, WM_INPUTLANGCHANGEREQUEST, IntPtr.Zero, LoadKeyboardLayout(LANG_EN_US, KLF_ACTIVATE));
+                    Thread.Sleep(50);
+                }
+            }
+
             int i = 0;
             while (i < sequence.Length)
             {

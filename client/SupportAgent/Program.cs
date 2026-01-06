@@ -145,18 +145,16 @@ class Program
 
             Console.WriteLine($"Server: {serverUrl}");
 
-            // REPLACED: Console input with GUI Dialog (2-minute timeout)
-            task = ShowUnifiedDialog(
-                "XelthAGI Agent - Ready",
-                $"🤖 Agent ID: {_clientId}\n\nI am ready to work!",
-                "Please enter your task below:\n\n⏱️ Auto-shutdown in 2 minutes if no task provided.",
-                DialogMode.FullInteractive,
+            // REPLACED: Use unified ShowAgentNotification
+            task = ShowAgentNotification(
+                $"🤖 Agent ID: {_clientId} - Ready",
+                "I am ready to work!\n\nPlease enter your task below or wait 2 minutes to exit.",
                 timeoutSeconds: 120
             );
 
-            if (string.IsNullOrEmpty(task))
+            if (string.IsNullOrEmpty(task) || task == "TIMEOUT" || task == "SHUTDOWN")
             {
-                Console.WriteLine("⏱️ Timeout: No task provided. Exiting.");
+                Console.WriteLine("⏱️ Timeout or shutdown: No task provided. Exiting.");
                 return 0;
             }
 
@@ -233,33 +231,25 @@ class Program
             Console.WriteLine($"✅ Target window: {windowName}\n");
         }
 
-        // --- PRE-TASK CONFIRMATION DIALOG ---
-        // Show what will be done before starting automation
+        // --- PRE-TASK NOTIFICATION ---
         string windowInfo = automationService.CurrentWindow != null
             ? $"🪟 Target: {GetWindowTitleSafe(automationService.CurrentWindow)}"
             : "🪟 Target: Will attach to active window";
 
-        string preTaskResponse = ShowUnifiedDialog(
-            "Ready to Start",
-            $"🤖 Agent ID: {_clientId}",
+        string preTaskResponse = ShowAgentNotification(
+            $"🤖 Agent ID: {_clientId} - Ready to Start",
             $"I am about to execute the following task:\n\n📋 TASK:\n{task}\n\n{windowInfo}\n\n⏱️ Auto-start in 10 seconds...",
-            DialogMode.MessageOnly,
             timeoutSeconds: 10
         );
 
-        // If user explicitly closed dialog (empty = cancel), exit gracefully
-        // TIMEOUT = auto-continue, so we only exit on empty string
-        if (string.IsNullOrEmpty(preTaskResponse) && preTaskResponse != "TIMEOUT")
+        if (preTaskResponse == "SHUTDOWN")
         {
-            Console.WriteLine("❌ Task cancelled by user.");
+            Console.WriteLine("🛑 Shutdown requested by user.");
             return 0;
         }
 
-        if (preTaskResponse == "TIMEOUT")
-        {
-            Console.WriteLine("⏱️ Auto-starting after timeout...");
-        }
-        // --- END PRE-TASK DIALOG ---
+        Console.WriteLine("⏱️ Auto-starting after timeout...");
+        // --- END PRE-TASK NOTIFICATION ---
 
         Console.WriteLine($"Task: {task}");
         Console.WriteLine("Starting automation...\n");
@@ -271,6 +261,13 @@ class Program
         int previousElementCount = 0;
         string previousContentHash = "";
         string lastKnownWindowTitle = ""; // Track last window to prevent focus loss
+
+        // Coarse-to-Fine Vision State
+        string? currentOriginalScreenPath = null; // Path to the original high-res screenshot
+        double currentScaleFactor = 1.0; // Scale factor used for the low-res overview
+
+        // Cleanup old vision temp files on startup
+        VisionHelper.CleanupOldFiles(olderThanMinutes: 30);
 
         while (stepCount < maxSteps)
         {
@@ -291,7 +288,15 @@ class Program
                     }
                 }
 
-                Console.WriteLine("  → Scanning UI state...");
+                // CRITICAL: Let UI fully render before screenshot (fixes shadow screenshot race condition)
+                // Even though we delay after command execution, Windows UI rendering is async
+                if (stepCount > 1) // Skip on first iteration
+                {
+                    // Aggressively increased to 500ms to ensure "What You See Is What You Got"
+                    await Task.Delay(500);
+                }
+
+                Console.WriteLine($"  → Scanning UI state... (T={DateTime.Now:HH:mm:ss.fff})");
                 var uiState = automationService.GetWindowState(automationService.CurrentWindow);
                 Console.WriteLine($"  → Found {uiState.Elements.Count} UI elements");
 
@@ -312,29 +317,52 @@ class Program
 
                 if (nextScreenshotQuality > 0)
                 {
-                    Console.WriteLine($"  📷 Capturing AI Vision screenshot (Quality: {nextScreenshotQuality}%)...");
-                    uiState.Screenshot = automationService.CaptureScreen(nextScreenshotQuality);
+                    Console.WriteLine($"  📷 Capturing AI Vision screenshot (Coarse-to-Fine mode)...");
 
-                    // --- NEW: AUTO OCR ON INSPECTION ---
-                    // Whenever AI requests vision, we also give it text recognition ability
-                    if (!string.IsNullOrEmpty(uiState.Screenshot) && ocrService.IsSupported)
+                    // STEP 1: Capture full high-resolution screenshot to file
+                    currentOriginalScreenPath = VisionHelper.GetTempPath($"screen_original_{stepCount}.png");
+                    bool captured = automationService.CaptureScreenToFile(currentOriginalScreenPath);
+
+                    if (captured && File.Exists(currentOriginalScreenPath))
                     {
-                        Console.WriteLine("  🧠 Running OCR Analysis...");
-                        try
+                        // STEP 2: Create low-res overview for token efficiency
+                        string lowResPath = VisionHelper.GetTempPath($"screen_lowres_{stepCount}.jpg");
+                        currentScaleFactor = VisionHelper.CreateLowResOverview(
+                            currentOriginalScreenPath,
+                            lowResPath,
+                            targetLongSide: 1280); // 1280px for balance between detail and tokens
+
+                        // STEP 3: Convert low-res to Base64 for transmission
+                        uiState.Screenshot = VisionHelper.ImageToBase64(lowResPath);
+
+                        Console.WriteLine($"  ✅ Vision prepared: Overview sent (scale: {currentScaleFactor:F4})");
+
+                        // --- AUTO OCR ON INSPECTION ---
+                        // Run OCR on the low-res version for text recognition
+                        if (!string.IsNullOrEmpty(uiState.Screenshot) && ocrService.IsSupported)
                         {
-                            byte[] imageBytes = Convert.FromBase64String(uiState.Screenshot);
-                            using (var ms = new MemoryStream(imageBytes))
-                            using (var bmp = new Bitmap(ms))
+                            Console.WriteLine("  🧠 Running OCR Analysis...");
+                            try
                             {
-                                var ocrResult = await ocrService.GetTextFromScreen(bmp);
-                                _actionHistory.Add($"SYSTEM: {ocrResult}");
-                                Console.WriteLine("  ✅ OCR Text added to context");
+                                byte[] imageBytes = Convert.FromBase64String(uiState.Screenshot);
+                                using (var ms = new MemoryStream(imageBytes))
+                                using (var bmp = new Bitmap(ms))
+                                {
+                                    var ocrResult = await ocrService.GetTextFromScreen(bmp);
+                                    _actionHistory.Add($"SYSTEM: {ocrResult}");
+                                    Console.WriteLine("  ✅ OCR Text added to context");
+                                }
+                            }
+                            catch (Exception ocrEx)
+                            {
+                                Console.WriteLine($"  ⚠️ OCR Failed: {ocrEx.Message}");
                             }
                         }
-                        catch (Exception ocrEx)
-                        {
-                            Console.WriteLine($"  ⚠️ OCR Failed: {ocrEx.Message}");
-                        }
+                    }
+                    else
+                    {
+                        Console.WriteLine("  ❌ Vision capture failed - falling back to standard capture");
+                        uiState.Screenshot = automationService.CaptureScreen(nextScreenshotQuality);
                     }
 
                     nextScreenshotQuality = 0;
@@ -354,45 +382,44 @@ class Program
                 {
                     Console.WriteLine("  ❌ Server error or no response");
 
-                    // CONNECTION LOSS - Ask user if they want to shut down
-                    if (ShowConnectionLostDialog())
+                    // CONNECTION LOSS - Ask user using unified notification
+                    string connectionLostResponse = ShowAgentNotification(
+                        $"❌ Agent ID: {_clientId} - Connection Lost",
+                        "I've lost connection to the server or encountered an error.\n\nWould you like to shut me down?",
+                        timeoutSeconds: 60
+                    );
+
+                    if (connectionLostResponse == "SHUTDOWN" || connectionLostResponse == "Yes")
                     {
                         Console.WriteLine("  🛑 User requested shutdown");
                         return 0;
                     }
-                    break;
+
+                    // User chose No (retry) or timeout - retry
+                    Console.WriteLine("  🔄 Retrying connection...");
+                    await Task.Delay(2000);
+                    continue; // Retry the loop
                 }
 
                 if (response.TaskCompleted)
                 {
                     Console.WriteLine("\n✅ Task completed successfully!");
 
-                    // REPLACED: Use unified dialog with 10-second auto-close
-                    // User can request continuation during this time
+                    // Show completion notification
                     string completionMsg = response.Command?.Message ?? "Task completed successfully.";
-                    string continueTask = ShowUnifiedDialog(
-                        "Task Completed",
+                    string completionResponse = ShowAgentNotification(
                         $"✅ Agent ID: {_clientId} - Work finished!",
-                        $"RESULT:\n{completionMsg}\n\n💡 You can request additional work below (10s timeout):",
-                        DialogMode.FullInteractive,
+                        $"RESULT:\n{completionMsg}\n\n⏱️ Auto-closing in 10 seconds...",
                         timeoutSeconds: 10
                     );
 
-                    // If user entered continuation task, continue working
-                    // TIMEOUT = just timeout, not a real task continuation
-                    if (!string.IsNullOrEmpty(continueTask) && continueTask != "TIMEOUT")
+                    if (completionResponse == "SHUTDOWN")
                     {
-                        Console.WriteLine($"\n🔄 Continuation requested: {continueTask}");
-                        task = continueTask;
-                        _actionHistory.Clear(); // Start fresh for new task
-                        continue; // Continue automation loop
+                        Console.WriteLine("🛑 Shutdown requested by user.");
+                        return 0;
                     }
 
-                    if (continueTask == "TIMEOUT")
-                    {
-                        Console.WriteLine("⏱️ No continuation - auto-closing after timeout.");
-                    }
-
+                    Console.WriteLine("⏱️ No continuation - auto-closing after timeout.");
                     return 0;
                 }
 
@@ -405,8 +432,102 @@ class Program
                     continue;
                 }
 
+                // --- ZOOM IN HANDLER (Coarse-to-Fine Vision) ---
+                if (response.Command != null && response.Command.Action.ToLower() == "zoom_in")
+                {
+                    Console.WriteLine($"  🔍 Server requested ZOOM IN on specific area");
+
+                    // Validate that we have an original screenshot to zoom into
+                    if (string.IsNullOrEmpty(currentOriginalScreenPath) || !File.Exists(currentOriginalScreenPath))
+                    {
+                        Console.ForegroundColor = ConsoleColor.Red;
+                        Console.WriteLine("  ❌ ZOOM FAILED: No original screenshot available!");
+                        Console.ResetColor();
+                        _actionHistory.Add("SYSTEM: Zoom request FAILED - no original screenshot. You must call 'inspect_screen' first.");
+                        continue;
+                    }
+
+                    try
+                    {
+                        // Parse coordinates from command (X, Y, ElementId as W, Text as H)
+                        // Expected: X=left, Y=top, ElementId=width (as string), Text=height (as string)
+                        int llmX = response.Command.X;
+                        int llmY = response.Command.Y;
+
+                        // Parse width and height from ElementId and Text fields
+                        int llmW = 0, llmH = 0;
+                        if (!int.TryParse(response.Command.ElementId, out llmW)) llmW = 400; // Default width
+                        if (!int.TryParse(response.Command.Text, out llmH)) llmH = 300; // Default height
+
+                        Console.WriteLine($"  🔍 Zoom coordinates: X={llmX}, Y={llmY}, W={llmW}, H={llmH}");
+
+                        // Create high-res crop using VisionHelper
+                        string cropPath = VisionHelper.GetTempPath($"screen_crop_{stepCount}.jpg");
+                        VisionHelper.CreateHighResCrop(
+                            currentOriginalScreenPath,
+                            cropPath,
+                            llmX, llmY, llmW, llmH,
+                            currentScaleFactor);
+
+                        // Send the crop in the next iteration by setting uiState.Screenshot
+                        // We'll add it to history and force a re-check
+                        string cropBase64 = VisionHelper.ImageToBase64(cropPath);
+
+                        if (!string.IsNullOrEmpty(cropBase64))
+                        {
+                            Console.ForegroundColor = ConsoleColor.Green;
+                            Console.WriteLine("  ✅ High-res crop created - sending to LLM");
+                            Console.ResetColor();
+
+                            // Create a new UI state with the zoomed screenshot
+                            var zoomState = new UIState
+                            {
+                                WindowTitle = uiState.WindowTitle,
+                                ProcessName = uiState.ProcessName,
+                                Elements = uiState.Elements, // Keep same elements
+                                Screenshot = cropBase64, // Replace with zoom
+                                DebugScreenshot = "" // No need for debug screenshot on zoom
+                            };
+
+                            _actionHistory.Add($"SYSTEM: High-resolution zoom provided for area [{llmX},{llmY}] {llmW}x{llmH}");
+
+                            // Send zoom immediately to LLM
+                            Console.WriteLine("  → Asking server to analyze zoomed area...");
+                            var zoomResponse = await serverService.GetNextCommand(zoomState, task, _actionHistory);
+
+                            if (zoomResponse != null && !string.IsNullOrEmpty(zoomResponse.Reasoning))
+                            {
+                                Console.ForegroundColor = ConsoleColor.Cyan;
+                                Console.WriteLine($"\n  🧠 THOUGHT (after zoom): {zoomResponse.Reasoning}\n");
+                                Console.ResetColor();
+                            }
+
+                            // Replace the current response with zoom response for execution
+                            response = zoomResponse;
+                            // Fall through to normal command execution below
+                        }
+                        else
+                        {
+                            Console.WriteLine("  ❌ Failed to create crop");
+                            _actionHistory.Add("SYSTEM: Zoom failed - could not create crop");
+                            continue; // Skip this iteration if crop failed
+                        }
+                    }
+                    catch (Exception zoomEx)
+                    {
+                        Console.ForegroundColor = ConsoleColor.Red;
+                        Console.WriteLine($"  ❌ Zoom error: {zoomEx.Message}");
+                        Console.ResetColor();
+                        _actionHistory.Add($"SYSTEM: Zoom failed - {zoomEx.Message}");
+                        continue; // Skip this iteration if zoom errored
+                    }
+
+                    // If we got here successfully, response has been replaced with zoomResponse
+                    // Fall through to normal command execution
+                }
+
                 // --- GUI INPUT DIALOG FOR HUMAN ASSISTANCE ---
-                if (response.Command != null && response.Command.Action.ToLower() == "ask_user")
+                if (response != null && response.Command != null && response.Command.Action.ToLower() == "ask_user")
                 {
                     Console.Beep();
                     Console.ForegroundColor = ConsoleColor.Yellow;
@@ -414,16 +535,25 @@ class Program
                     Console.WriteLine($"  {response.Command.Text}");
                     Console.ResetColor();
 
-                    // Open GUI Dialog (Blocking) -> UPDATED CALL
-                    string userInput = ShowUnifiedDialog(
-                        "AI Agent Needs Help",
-                        "The AI Agent needs your input:",
+                    // Open unified notification for user input
+                    string userInput = ShowAgentNotification(
+                        $"🤖 Agent ID: {_clientId} - Needs Help",
                         response.Command.Text,
-                        DialogMode.FullInteractive
+                        timeoutSeconds: 300 // 5 minutes for user to respond
                     );
 
-                    // Log response
-                    _actionHistory.Add($"USER_SAID: {userInput}");
+                    // Handle shutdown
+                    if (userInput == "SHUTDOWN")
+                    {
+                        Console.WriteLine("🛑 Shutdown requested during ask_user.");
+                        return 0;
+                    }
+
+                    // Log response (skip if timeout)
+                    if (userInput != "TIMEOUT")
+                    {
+                        _actionHistory.Add($"USER_SAID: {userInput}");
+                    }
                     Console.ForegroundColor = ConsoleColor.Green;
                     Console.WriteLine($"  >>   ✅ User response recorded");
                     Console.ResetColor();
@@ -432,7 +562,7 @@ class Program
                 }
                 // --------------------------------------------------
 
-                if (response.Command != null)
+                if (response != null && response.Command != null)
                 {
                     var cmd = response.Command;
 
@@ -448,7 +578,7 @@ class Program
                     }
                     // -------------------------------
 
-                    Console.WriteLine($"  → Executing: {cmd.Action} on {cmd.ElementId}");
+                    Console.WriteLine($"  → Executing: {cmd.Action} on {cmd.ElementId} (T={DateTime.Now:HH:mm:ss.fff})");
                     if (!string.IsNullOrEmpty(cmd.Message))
                     {
                         Console.ForegroundColor = ConsoleColor.DarkGray;
@@ -465,15 +595,21 @@ class Program
                         Console.WriteLine($"  Target: {cmd.Text}");
                         Console.ResetColor();
 
-                        // GUI Confirmation Dialog - Using Unified Dialog
-                        string userResponse = ShowUnifiedDialog(
-                            "Security Confirmation",
-                            $"⚠️ Agent ID: {_clientId} needs permission",
+                        // GUI Confirmation Dialog - Using unified notification
+                        string userResponse = ShowAgentNotification(
+                            $"⚠️ Agent ID: {_clientId} - Permission Required",
                             $"The agent wants to execute a high-risk command:\n\nACTION: {cmd.Action.ToUpper()}\nTARGET: {cmd.Text}\n\nDo you want to allow this?",
-                            DialogMode.FullInteractive
+                            timeoutSeconds: 60 // 1 minute to decide
                         );
 
-                        // Parse response: Yes/No/DontKnow or custom text
+                        // Handle shutdown
+                        if (userResponse == "SHUTDOWN")
+                        {
+                            Console.WriteLine("🛑 Shutdown requested during safety check.");
+                            return 0;
+                        }
+
+                        // Parse response: Yes/No/DontKnow
                         DialogResult result = userResponse.Equals("Yes", StringComparison.OrdinalIgnoreCase) ? DialogResult.Yes
                             : userResponse.Equals("No", StringComparison.OrdinalIgnoreCase) ? DialogResult.No
                             : DialogResult.Cancel;
@@ -512,7 +648,19 @@ class Program
                     Console.WriteLine($"  ⏱️  Execution time: {sw.ElapsedMilliseconds}ms");
                     Console.ResetColor();
 
-                    await Task.Delay(300);
+                    // Smart delay based on command type (UI needs time to settle)
+                    // INCREASED DELAYS: To ensure screenshots capture the RESULT of the action, not the process.
+                    int settleDelay = cmd.Action.ToLower() switch
+                    {
+                        "type" => 2000,     // 2.0s: Typing/Clipboard often triggers validation or UI reflows
+                        "key" => 2000,      // 2.0s: Complex key sequences need time
+                        "click" => 1000,    // 1.0s: Allow for button animations and dialog appearance
+                        "switch_window" => 1000, // 1.0s: Window focus switching and DWM composition
+                        "select" => 1000,   // 1.0s: Dropdown animations
+                        "os_run" => 2000,   // 2.0s: App launch time
+                        _ => 500            // 0.5s: Default safety buffer
+                    };
+                    await Task.Delay(settleDelay);
 
                     // Auto-focus after launching new application
                     if (cmd.Action.ToLower() == "os_run" && success && string.IsNullOrEmpty(targetApp))
@@ -669,12 +817,21 @@ class Program
             Console.WriteLine("⚠️  Reached maximum steps limit");
             Console.ResetColor();
 
-            // TIMEOUT - Ask user if they want to shut down
-            if (ShowTimeoutDialog())
+            // TIMEOUT - Ask user using unified notification
+            string timeoutResponse = ShowAgentNotification(
+                $"⚠️ Agent ID: {_clientId} - Maximum Steps Reached",
+                "I've reached the maximum number of steps.\n\nThe task may not be complete.\n\nShut down or continue?",
+                timeoutSeconds: 30
+            );
+
+            if (timeoutResponse == "SHUTDOWN" || timeoutResponse == "No")
             {
                 Console.WriteLine("  🛑 User requested shutdown");
                 return 0;
             }
+
+            // User chose Yes (continue) or timeout - keep going
+            Console.WriteLine("  ▶️ Continuing automation...");
         }
 
         return 0;
@@ -742,8 +899,22 @@ class Program
             Text = title,
             StartPosition = FormStartPosition.CenterScreen,
             TopMost = true,
-            ControlBox = mode != DialogMode.InputOnly // Hide close button only if input strictly required
+            ShowInTaskbar = true, // Ensure visible in taskbar
+            ControlBox = mode != DialogMode.InputOnly
         };
+
+        // Aggressive Keep-On-Top Timer
+        var keepTopTimer = new System.Windows.Forms.Timer();
+        keepTopTimer.Interval = 2000; // Every 2 seconds
+        keepTopTimer.Tick += (s, e) => {
+            if (!promptForm.IsDisposed && promptForm.Visible) {
+                SetWindowPos(promptForm.Handle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+                promptForm.Activate();
+            } else {
+                keepTopTimer.Stop();
+            }
+        };
+        keepTopTimer.Start();
 
         // Header
         Label headerLabel = new Label()
@@ -826,9 +997,10 @@ class Program
         // --- Close/Exit Button for MessageOnly mode ---
         Button btnClose = new Button()
         {
-            Text = "Close / Exit",
-            Left = 200, Top = 400, Width = 140, Height = 40,
-            Visible = (mode == DialogMode.MessageOnly)
+            Text = "OK / Continue",
+            Left = 220, Top = 240, Width = 140, Height = 40,
+            Visible = (mode == DialogMode.MessageOnly),
+            BackColor = Color.LightGreen
         };
         btnClose.Click += (s, e) => { promptForm.Close(); };
 
@@ -839,7 +1011,7 @@ class Program
         promptForm.Controls.Add(btnClose);
 
         // Resize form based on mode
-        if (mode == DialogMode.MessageOnly) promptForm.Height = 350;
+        if (mode == DialogMode.MessageOnly) promptForm.Height = 320;
         if (mode == DialogMode.InputOnly) promptForm.Height = 400;
 
         // Auto-focus logic and timeout handling
@@ -944,115 +1116,185 @@ class Program
     }
 
 
-    // CONNECTION LOST DIALOG (Blocking)
-    private static bool ShowConnectionLostDialog()
+    // AGENT NOTIFICATION - Single unified design for greeting/completion
+    // Returns: user input text, "SHUTDOWN" if shutdown clicked, "TIMEOUT" if auto-closed, "Yes"/"No"/"Don't Know" for quick replies
+    private static string ShowAgentNotification(string headerText, string message, int timeoutSeconds = 10)
     {
-        Form dialogForm = new Form()
+        string resultValue = "TIMEOUT";
+
+        Form notifForm = new Form()
         {
-            Width = 500,
-            Height = 200,
+            Width = 600,
+            Height = 470,
             FormBorderStyle = FormBorderStyle.FixedDialog,
-            Text = "Connection Lost",
+            Text = "XelthAGI Agent",
             StartPosition = FormStartPosition.CenterScreen,
             TopMost = true,
-            MaximizeBox = false,
-            MinimizeBox = false,
             ShowInTaskbar = true,
-            ControlBox = false
+            MaximizeBox = false,
+            MinimizeBox = false
         };
 
-        Label messageLabel = new Label()
+        // ULTRA-AGGRESSIVE Keep-On-Top Timer - beats everything
+        var keepTopTimer = new System.Windows.Forms.Timer();
+        keepTopTimer.Interval = 500; // Every 0.5 seconds (very aggressive)
+        keepTopTimer.Tick += (s, e) => {
+            if (!notifForm.IsDisposed && notifForm.Visible) {
+                SetWindowPos(notifForm.Handle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+                notifForm.BringToFront();
+                notifForm.Activate();
+                notifForm.Focus();
+            } else {
+                keepTopTimer.Stop();
+            }
+        };
+        keepTopTimer.Start();
+
+        // Header (shorter width to not overlap countdown)
+        WinFormsLabel headerLabel = new WinFormsLabel()
         {
-            Left = 20,
-            Top = 20,
-            Width = 440,
-            Height = 80,
-            Text = "I've lost connection to the server or encountered an error.\n\nWould you like to shut me down?",
+            Left = 20, Top = 20, Width = 440, Height = 30,
+            Text = headerText,
+            Font = new Font("Segoe UI", 12, FontStyle.Bold),
+            TextAlign = ContentAlignment.MiddleLeft
+        };
+
+        // Countdown Label (top right, opposite header) - MUST be added AFTER header to be on top
+        WinFormsLabel countdownLabel = new WinFormsLabel()
+        {
+            Left = 470, Top = 20, Width = 90, Height = 30,
+            TextAlign = ContentAlignment.MiddleRight,
+            Font = new Font("Segoe UI", 12, FontStyle.Bold),
+            ForeColor = Color.OrangeRed,
+            Text = $"⏱️ {timeoutSeconds}s"
+        };
+
+        // Message Box
+        WinFormsTextBox messageBox = new WinFormsTextBox()
+        {
+            Left = 20, Top = 60, Width = 540, Height = 140,
+            Multiline = true,
+            ReadOnly = true,
+            ScrollBars = ScrollBars.Vertical,
+            BackColor = Color.White,
+            Text = message,
             Font = new Font("Segoe UI", 10)
         };
 
-        Button shutdownButton = new Button()
+        // 4 Quick Reply Buttons (all in one line)
+        WinFormsButton btnYes = new WinFormsButton()
         {
-            Text = "Shutdown",
-            Left = 150,
-            Width = 100,
-            Top = 120,
-            DialogResult = DialogResult.Yes,
+            Text = "✅ Yes / Allow",
+            Left = 20, Top = 220, Width = 130, Height = 40,
+            BackColor = Color.LightGreen
+        };
+        btnYes.Click += (s, e) => { resultValue = "Yes"; notifForm.Close(); };
+
+        WinFormsButton btnNo = new WinFormsButton()
+        {
+            Text = "❌ No / Deny",
+            Left = 160, Top = 220, Width = 130, Height = 40,
             BackColor = Color.LightCoral
         };
+        btnNo.Click += (s, e) => { resultValue = "No"; notifForm.Close(); };
 
-        Button retryButton = new Button()
+        WinFormsButton btnDontKnow = new WinFormsButton()
         {
-            Text = "Retry",
-            Left = 260,
-            Width = 100,
-            Top = 120,
-            DialogResult = DialogResult.No
+            Text = "❓ Don't Know",
+            Left = 300, Top = 220, Width = 130, Height = 40,
+            BackColor = Color.LightYellow
+        };
+        btnDontKnow.Click += (s, e) => { resultValue = "Don't Know"; notifForm.Close(); };
+
+        WinFormsButton btnShutdown = new WinFormsButton()
+        {
+            Text = "🛑 Shutdown",
+            Left = 440, Top = 220, Width = 120, Height = 40,
+            BackColor = Color.Salmon,
+            Font = new Font("Segoe UI", 9, FontStyle.Bold)
+        };
+        btnShutdown.Click += (s, e) => { resultValue = "SHUTDOWN"; notifForm.Close(); };
+
+        // Text Input Section (3 lines) - moved up since buttons are now in one line
+        GroupBox groupInput = new GroupBox()
+        {
+            Left = 20, Top = 270, Width = 540, Height = 140,
+            Text = "Or type specific data/response:",
+            Font = new Font("Segoe UI", 9)
         };
 
-        dialogForm.Controls.Add(messageLabel);
-        dialogForm.Controls.Add(shutdownButton);
-        dialogForm.Controls.Add(retryButton);
-
-        ForceWindowToForeground(dialogForm.Handle);
-        DialogResult result = dialogForm.ShowDialog();
-
-        return result == DialogResult.Yes; // true = shutdown
-    }
-
-    // TIMEOUT DIALOG (Blocking)
-    private static bool ShowTimeoutDialog()
-    {
-        Form dialogForm = new Form()
+        WinFormsTextBox inputBox = new WinFormsTextBox()
         {
-            Width = 500,
-            Height = 200,
-            FormBorderStyle = FormBorderStyle.FixedDialog,
-            Text = "Maximum Steps Reached",
-            StartPosition = FormStartPosition.CenterScreen,
-            TopMost = true,
-            MaximizeBox = false,
-            MinimizeBox = false,
-            ShowInTaskbar = true,
-            ControlBox = false
-        };
-
-        Label messageLabel = new Label()
-        {
-            Left = 20,
-            Top = 20,
-            Width = 440,
-            Height = 80,
-            Text = "I've reached the maximum number of steps.\n\nThe task may not be complete. Shut down?",
+            Left = 15, Top = 30, Width = 400, Height = 80,
+            Multiline = true,
+            ScrollBars = ScrollBars.Vertical,
             Font = new Font("Segoe UI", 10)
         };
 
-        Button shutdownButton = new Button()
+        WinFormsButton btnSend = new WinFormsButton()
         {
-            Text = "Shutdown",
-            Left = 150,
-            Width = 100,
-            Top = 120,
-            DialogResult = DialogResult.Yes,
-            BackColor = Color.LightCoral
+            Text = "Send Text",
+            Left = 420, Top = 30, Width = 100, Height = 80,
+            BackColor = Color.LightBlue
+        };
+        btnSend.Click += (s, e) => {
+            if (!string.IsNullOrWhiteSpace(inputBox.Text)) {
+                resultValue = inputBox.Text;
+                notifForm.Close();
+            }
         };
 
-        Button continueButton = new Button()
+        groupInput.Controls.Add(inputBox);
+        groupInput.Controls.Add(btnSend);
+
+        notifForm.Controls.Add(headerLabel);
+        notifForm.Controls.Add(messageBox);
+        notifForm.Controls.Add(btnYes);
+        notifForm.Controls.Add(btnNo);
+        notifForm.Controls.Add(btnDontKnow);
+        notifForm.Controls.Add(btnShutdown);
+        notifForm.Controls.Add(groupInput);
+        notifForm.Controls.Add(countdownLabel); // Add last so it's on top
+
+        // Auto-close timer
+        var autoCloseTimer = new System.Windows.Forms.Timer();
+        autoCloseTimer.Interval = timeoutSeconds * 1000;
+        autoCloseTimer.Tick += (s, args) =>
         {
-            Text = "Continue Anyway",
-            Left = 260,
-            Width = 120,
-            Top = 120,
-            DialogResult = DialogResult.No
+            autoCloseTimer.Stop();
+            notifForm.Close();
+        };
+        autoCloseTimer.Start();
+
+        // Countdown timer
+        var countdownTimer = new System.Windows.Forms.Timer();
+        int remainingSeconds = timeoutSeconds;
+        countdownTimer.Interval = 1000;
+        countdownTimer.Tick += (s, args) =>
+        {
+            remainingSeconds--;
+            countdownLabel.Text = $"⏱️ {remainingSeconds}s";
+            if (remainingSeconds <= 5) countdownLabel.ForeColor = Color.Red;
+            if (remainingSeconds <= 0) countdownTimer.Stop();
+        };
+        countdownTimer.Start();
+
+        notifForm.Shown += (sender, e) =>
+        {
+            ForceWindowToForeground(notifForm.Handle);
+            Thread.Sleep(50);
+            ForceWindowToForeground(notifForm.Handle);
+            SetWindowPos(notifForm.Handle, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+            inputBox.Focus();
         };
 
-        dialogForm.Controls.Add(messageLabel);
-        dialogForm.Controls.Add(shutdownButton);
-        dialogForm.Controls.Add(continueButton);
+        System.Media.SystemSounds.Exclamation.Play();
+        notifForm.ShowDialog();
 
-        ForceWindowToForeground(dialogForm.Handle);
-        DialogResult result = dialogForm.ShowDialog();
-
-        return result == DialogResult.Yes; // true = shutdown
+        return resultValue;
     }
+
+    // CONNECTION LOST DIALOG - REMOVED, now uses ShowAgentNotification (unified design)
+
+    // TIMEOUT DIALOG - REMOVED, now uses ShowAgentNotification (unified design)
 }
