@@ -10,13 +10,21 @@
 
 ## Steps
 
-### 1. Запуск инсталлятора
-- **Action**: Запустить процесс `{InstallerPath}`
-- **Note**: Это вызовет UAC диалог (User Account Control).
+### 1. Запуск инсталлятора с повышенными правами
+- **Action**: Запустить PowerShell скрипт для запуска установщика:
+  ```
+  os_run: powershell.exe
+  args: -ExecutionPolicy Bypass -File "C:\\Users\\Dmytro\\xelthagi\\client\\SupportAgent\\Scripts\\launch_installer.ps1" -ExplicitPath "{InstallerPath}"
+  ```
+- **Note**: Скрипт автоматически:
+  - Устанавливает правильную рабочую директорию (директория установщика)
+  - Запускает с правами администратора (`-Verb RunAs`)
+  - Вызывает UAC диалог (User Account Control)
 
 ### 1.1. Подтверждение UAC
 - **Action**: `ask_user` с текстом: "A UAC (User Account Control) dialog should have appeared. Please click 'Yes' to allow the installer to run with administrator privileges. Click OK here when done."
 - **Wait**: Дождаться появления окна "InstallShield Wizard" или окна с подтверждением переустановки.
+- **Fallback**: Если окно не появляется после подтверждения UAC, использовать `inspect_screen` для проверки визуального состояния рабочего стола.
 
 ### 2. Подготовка и Приветствие
 - **Check**: Если появится окно с предложением подключить USB сейчас, нажать "OK".

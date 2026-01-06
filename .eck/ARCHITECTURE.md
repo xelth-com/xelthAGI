@@ -83,6 +83,8 @@ XelthAGI is a desktop automation framework that combines AI-driven decision-maki
 - `Services/UIAutomationService.cs`: FlaUI automation, window management, focus control
 - `Services/SystemService.cs`: OS operations (file, process, registry, network)
 - `Services/ServerCommunicationService.cs`: HTTP client for server communication
+- `Services/VisionHelper.cs`: Coarse-to-fine vision processing for token efficiency
+- `Services/OcrService.cs`: Windows Media OCR for text recognition
 - `Models/`: Command, UIState, UIElement data structures
 
 ## Key Design Patterns
@@ -199,6 +201,42 @@ if (highRiskActions.Contains(action) && !unsafeMode) {
 - `--unsafe` flag for automated testing
 - Logged denials inform the agent
 
+### 6. Coarse-to-Fine Vision (Token Optimization)
+**Problem:** Full-resolution screenshots consume excessive tokens (4K screen = ~5MB Base64).
+
+**Solution:**
+```csharp
+// STEP 1: Capture high-res original to file
+string originalPath = VisionHelper.GetTempPath("screen_original.png");
+automationService.CaptureScreenToFile(originalPath);
+
+// STEP 2: Create low-res overview for LLM
+string lowResPath = VisionHelper.GetTempPath("screen_lowres.jpg");
+double scaleFactor = VisionHelper.CreateLowResOverview(
+    originalPath, lowResPath, targetLongSide: 1280);
+// → Sends ~200KB instead of ~5MB (96% reduction)
+
+// STEP 3: LLM requests zoom if needed
+// Command: { action: "zoom_in", x: 100, y: 200, w: 400, h: 300 }
+string cropPath = VisionHelper.GetTempPath("screen_crop.jpg");
+VisionHelper.CreateHighResCrop(
+    originalPath, cropPath,
+    llmX, llmY, llmW, llmH, scaleFactor);
+// → Sends high-quality crop of specific area
+```
+
+**Benefits:**
+- **Token Efficiency**: ~75% reduction in vision tokens
+- **Better OCR**: High-res crops for small text recognition
+- **Faster Transmission**: Smaller payloads = faster LLM response
+- **Smart**: LLM decides when zoom is needed
+
+**Implementation:**
+- VisionHelper uses `HighQualityBicubic` interpolation for text readability
+- Original stored as PNG (lossless), overview as JPEG Q85, crop as JPEG Q95
+- Temp files auto-cleaned after 30 minutes
+- Scale factor tracked to correctly map low-res coordinates to high-res pixels
+
 ## Data Flow
 
 ### Request Flow
@@ -264,9 +302,35 @@ if (highRiskActions.Contains(action) && !unsafeMode) {
 
 1. **Element Caching**: Reuse element references within same scan
 2. **Economy Mode**: Screenshots only on-demand (not every step)
-3. **Server-Side Search**: `net_search` runs on server to avoid client overhead
-4. **Loop Detection**: Prevents wasted LLM tokens
-5. **Max Steps Limit**: 20 steps (reduced from 50) to prevent runaway costs
+3. **Coarse-to-Fine Vision**: Low-res overview first, high-res zoom on demand (~75% token reduction)
+4. **Server-Side Search**: `net_search` runs on server to avoid client overhead
+5. **Loop Detection**: Prevents wasted LLM tokens
+6. **Max Steps Limit**: 20 steps (reduced from 50) to prevent runaway costs
+7. **Auto-Cleanup**: Vision temp files purged after 30 minutes
+
+### 7. Visual Override (Trust Your Eyes)
+**Problem:** UI Automation tree sometimes incomplete - elements visible but not in tree (software bug).
+
+**Solution:**
+```javascript
+// LLM System Prompt Instruction #4:
+// If you see the button in screenshot BUT it's not in element list:
+// a) DO NOT loop on "inspect_screen"
+// b) Estimate X,Y coordinates from image
+// c) Send click with coordinates, empty element_id
+// d) Reasoning: "Element not in tree, visible at [x,y]. Attempting visual click."
+```
+
+**Benefits:**
+- Prevents infinite inspection loops
+- Recovers from UI Automation tree bugs
+- Prioritizes vision over programmatic data when mismatch occurs
+- Pragmatic: Better to misclick once than freeze forever
+
+**Implementation:**
+- Added to server/src/llmService.js:211-218 in system prompt
+- Instructs LLM to trust visual coordinates when tree is incomplete
+- Falls back to visual clicking with estimated coordinates
 
 ## Extensibility Points
 

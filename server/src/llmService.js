@@ -208,16 +208,41 @@ ${elementsSummary}
 1. Analyze the UI Elements and History.
 2. Determine the NEXT SINGLE ACTION.
 3. If you see "NO CHANGE" in history multiple times, switch strategy (e.g. use keyboard instead of click).
-4. If the element is not in the list, use "inspect_screen" to see it. BUT: avoid using "inspect_screen" repeatedly - if you inspected 2-3 times without finding the element, try a different approach (keyboard, switch_window, etc.).
-5. **CRITICAL**: If you just used "os_run" to launch an app (e.g. calc, notepad), IMMEDIATELY use "switch_window" in the NEXT step to focus that app. DO NOT wait or inspect - switch first!
-6. When typing into apps like Calculator or Notepad, use the "key" action (it supports any text, numbers, symbols).
-7. **TEXT INPUT MODES** (for "type" action):
+4. **VISUAL OVERRIDE (THE "TRUST YOUR EYES" RULE)**:
+   - Problem: Sometimes the "AVAILABLE UI ELEMENTS" list is empty or incomplete (software bug), BUT you can clearly see the button in the image/screenshot.
+   - Solution: If you see the button in the image but it's not in the list:
+     a) DO NOT loop on "inspect_screen".
+     b) Estimate the X,Y coordinates of the button center from the image.
+     c) Send a 'click' command with those X,Y coordinates and empty element_id.
+     d) Reasoning: "Element not in tree, but visible at approx [x,y]. Attempting visual click."
+   - Better to misclick once than to freeze in an inspection loop!
+5. If the element is not in the list, use "inspect_screen" to see it. BUT: avoid using "inspect_screen" repeatedly - if you inspected 2-3 times without finding the element, try a different approach (keyboard, switch_window, etc.).
+6. **WINDOW CYCLING STRATEGY**: If "switch_window" fails repeatedly (2-3 times) and you need to find a hidden/background window:
+   - Use "key" action with "alt+tab" to cycle through open windows
+   - After each Alt+Tab, use "inspect_screen" to check if target window is now visible
+   - OCR will show window titles and content even if window is not in UI element tree
+   - Once target window is visible in screenshot, click directly using coordinates from OCR or use switch_window with exact title
+   - Maximum 3-4 Alt+Tab cycles before giving up and trying different approach
+7. **CRITICAL - IMMEDIATE FALLBACK WHEN RECURSIVE SEARCH FAILS**:
+   - When you see "Top-level search failed, trying recursive search for child windows..." in history:
+     → This means the window is NOT in the UI Automation tree (modal dialog, hidden, or doesn't exist)
+     → If recursive search ALSO fails → window CANNOT be found via switch_window
+     → DO NOT try different title variations (LookinBody, LookinBody120, InstallShield, etc.) - WASTE OF TIME!
+   - MANDATORY sequence after recursive search failure:
+     * Step N: switch_window "InstallShield" → "Top-level search failed, trying recursive search..." → FAILED
+     * Step N+1: IMMEDIATELY use "inspect_screen" (quality: 70) to see what's actually on screen
+     * Step N+2: If OCR shows target window/dialog → click button using coordinates: {"action": "click", "x": 520, "y": 380, "element_id": ""}
+     * Step N+2 alternative: If OCR shows nothing → window hasn't appeared yet, use "wait" or try different launch method
+   - Example: If history shows "🔍 Top-level search failed, trying recursive search for child windows... ❌ Window not found" → STOP trying switch_window, use vision instead!
+8. **CRITICAL**: If you just used "os_run" to launch an app (e.g. calc, notepad), IMMEDIATELY use "switch_window" in the NEXT step to focus that app. DO NOT wait or inspect - switch first!
+9. When typing into apps like Calculator or Notepad, use the "key" action (it supports any text, numbers, symbols).
+10. **TEXT INPUT MODES** (for "type" action):
    - Default: REPLACE mode - clears field and types new text
    - "APPEND:text" - adds text to END (no clearing)
    - "PREPEND:text" - adds text to BEGINNING (no clearing)
    - "REPLACE:text" - explicitly clear and replace
    Example: If Notepad has "OLD", use "type" with "REPLACE:NEW" to get "NEW", or "APPEND: ADDED" to get "OLD ADDED"
-8. **TASK COMPLETION CHECK**: ONLY set "task_completed": true when you have verified that EVERY part of the task is done. For example: "Open Calculator, calculate 5+3, then open Notepad and type result" requires FOUR steps: (1) open calc, (2) calculate, (3) open notepad, (4) type result. Do NOT mark complete until step 4 is done!
+11. **TASK COMPLETION CHECK**: ONLY set "task_completed": true when you have verified that EVERY part of the task is done. For example: "Open Calculator, calculate 5+3, then open Notepad and type result" requires FOUR steps: (1) open calc, (2) calculate, (3) open notepad, (4) type result. Do NOT mark complete until step 4 is done!
 
 **RESPONSE FORMAT (JSON ONLY)**:
 {

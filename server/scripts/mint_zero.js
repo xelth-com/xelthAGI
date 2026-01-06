@@ -18,7 +18,7 @@ try {
 
     console.log(`\n✅ Generated Token: ${token.substring(0, 20)}...`);
 
-    // 2. Сохраняем его прямо в папку клиента
+    // 2. Сохраняем его прямо в папку клиента (используем publish для совместимости с Release логикой, и корень для Debug)
     const clientDir = path.join(__dirname, '../../client/SupportAgent');
     const tokenPath = path.join(clientDir, 'dev_token.txt');
 
@@ -31,6 +31,13 @@ try {
     // Encode token as base64 for safe storage in text file
     const tokenBase64 = Buffer.from(token, 'utf8').toString('base64');
     fs.writeFileSync(tokenPath, tokenBase64, { encoding: 'utf8', flag: 'w' });
+
+    // Также копируем в publish/ если папка существует (для совместимости)
+    const publishDir = path.join(clientDir, 'publish');
+    if (fs.existsSync(publishDir)) {
+         fs.writeFileSync(path.join(publishDir, 'dev_token.txt'), tokenBase64, { encoding: 'utf8', flag: 'w' });
+         console.log(`💾 Also saved to: ${path.join(publishDir, 'dev_token.txt')}`);
+    }
 
     console.log(`💾 Saved to: ${tokenPath}`);
     console.log(`✅ Token stored as base64 (${tokenBase64.length} chars)`);

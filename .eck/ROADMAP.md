@@ -10,6 +10,8 @@
 - [x] **Security Hardening**: Binary patching and token authentication.
 - [x] **OCR Integration**: "Reading" screens without accessibility trees.
 - [x] **Self-Learning**: Automated generation of playbooks from history.
+- [x] **Coarse-to-Fine Vision**: Token-efficient two-tier vision system with zoom capability.
+- [x] **Visual Override Rule**: LLM trusts vision over incomplete UI tree, prevents inspection loops.
 
 ## Phase 3: Expansion (Q1 2026) 🚧
 - [ ] **Voice Interface**: Talk to your computer.
