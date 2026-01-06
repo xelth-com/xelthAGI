@@ -1196,6 +1196,22 @@ public class UIAutomationService : IDisposable
 
     public void Dispose()
     {
+        // CRITICAL: Remove TOPMOST flag from last interacted window on exit
+        // This prevents windows from staying on top after agent shutdown
+        try
+        {
+            if (_lastInteractedWindow != null && !_lastInteractedWindow.Properties.IsOffscreen.ValueOrDefault)
+            {
+                var handle = _lastInteractedWindow.Properties.NativeWindowHandle.ValueOrDefault;
+                if (handle != IntPtr.Zero)
+                {
+                    SetWindowPos(handle, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+                    Console.WriteLine("  🧹 Cleaned up TOPMOST flag from last window");
+                }
+            }
+        }
+        catch { /* Ignore cleanup errors */ }
+
         _automation?.Dispose();
         _httpClient?.Dispose();
     }

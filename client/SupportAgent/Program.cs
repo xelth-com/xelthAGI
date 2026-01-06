@@ -91,6 +91,9 @@ class Program
     [STAThread] // Required for Windows Forms
     static async Task<int> Main(string[] args)
     {
+      // Declare automation service OUTSIDE try block to ensure Dispose is always called
+      UIAutomationService? automationService = null;
+
       try {
         // FORCE UTF-8 ENCODING for correct Unicode handling (Cyrillic, Umlauts, etc.)
         Console.OutputEncoding = Encoding.UTF8;
@@ -177,7 +180,7 @@ class Program
             Console.ResetColor();
         }
 
-        using var automationService = new UIAutomationService();
+        automationService = new UIAutomationService();
         var serverService = new ServerCommunicationService(serverUrl, _clientId);
 
         // Initialize OCR Service for text recognition
@@ -842,6 +845,12 @@ class Program
           Console.WriteLine($"\n❌ FATAL CRASH: {ex}");
           Console.ResetColor();
           return -1;
+      }
+      finally
+      {
+          // CRITICAL: Always cleanup TOPMOST flags on exit
+          // This prevents windows from staying on top after agent shutdown/crash
+          automationService?.Dispose();
       }
     }
 
