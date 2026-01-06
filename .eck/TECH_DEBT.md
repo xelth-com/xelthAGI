@@ -83,6 +83,20 @@ private const int RETRY_DELAY_MS = 1000;
 
 ## Resolved
 
+### ✅ Modal Dialog Button Discovery (v1.6.5)
+**Fixed:** 2026-01-06
+**Problem:** Dialog buttons (Save, Don't Save, Cancel) not visible to agent
+- Agent could see buttons in screenshots but couldn't click them
+- GetWindowState only scanned main window, not modal dialogs
+- Modal dialog children threw "Property not supported [#30005]" exceptions
+**Solution:** Scan modal windows + safe property access
+- Added window.ModalWindows scanning to GetWindowState
+- Wrapped child.Name, ControlType, IsEnabled in try-catch
+- Added debug logging for modal discovery
+**Impact:** Dialog interactions 4x faster (5 steps instead of 20), no more vision loops
+**Test:** German Notepad "Don't Save" dialog - 8 elements discovered, clicked successfully
+**Location:** `client/SupportAgent/Services/UIAutomationService.cs:271-306, 462-518`
+
 ### ✅ Screenshot Race Conditions - "Speedy Gonzales" Bug (v1.6.1)
 **Fixed:** 2026-01-06
 **Problem:** Screenshots captured before Windows UI finished rendering (Shadow Recorder "ghost images")

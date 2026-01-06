@@ -265,7 +265,50 @@ public class UIAutomationService : IDisposable
             Elements = new List<UIElement>()
         };
 
+        // Scan main window
         ScanElements(window, state.Elements, maxDepth: 10);
+
+        // CRITICAL: Also scan modal/popup windows (e.g., "Save changes?" dialogs)
+        // These are separate top-level windows that won't be found as children
+        try
+        {
+            var modalWindows = window.ModalWindows;
+            if (modalWindows != null && modalWindows.Length > 0)
+            {
+                foreach (var modal in modalWindows)
+                {
+                    int beforeCount = state.Elements.Count;
+                    Console.WriteLine($"  🪟 Scanning modal window: {modal.Name} (Type: {modal.ControlType})");
+
+                    // DEBUG: Check children count
+                    try
+                    {
+                        var children = modal.FindAllChildren();
+                        Console.WriteLine($"  🔍 Modal has {children?.Length ?? 0} direct children");
+                        if (children != null && children.Length > 0)
+                        {
+                            foreach (var child in children.Take(5)) // Show first 5
+                            {
+                                Console.WriteLine($"     - {child.ControlType}: '{child.Name}' (Enabled: {child.IsEnabled})");
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"  ⚠️ Could not enumerate children: {ex.Message}");
+                    }
+
+                    ScanElements(modal, state.Elements, maxDepth: 10);
+                    int afterCount = state.Elements.Count;
+                    Console.WriteLine($"  📊 Modal scan added {afterCount - beforeCount} elements (total: {afterCount})");
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  ⚠️ Modal scan failed: {ex.Message}");
+        }
+
         return state;
     }
 
@@ -425,31 +468,50 @@ public class UIAutomationService : IDisposable
             var children = element.FindAllChildren();
             foreach (var child in children)
             {
-                var elementId = child.Properties.AutomationId.ValueOrDefault ?? Guid.NewGuid().ToString();
-                var uiElement = new UIElement
+                try
                 {
-                    Id = elementId,
-                    Name = child.Name ?? "",
-                    Type = child.ControlType.ToString(),
-                    Value = GetElementValue(child),
-                    IsEnabled = child.IsEnabled,
-                    Bounds = new Models.Rectangle
+                    // Safe property access - some elements throw exceptions when accessing properties
+                    var elementId = child.Properties.AutomationId.ValueOrDefault ?? Guid.NewGuid().ToString();
+
+                    string name = "";
+                    try { name = child.Name ?? ""; } catch { name = ""; }
+
+                    string type = "";
+                    try { type = child.ControlType.ToString(); } catch { type = "Unknown"; }
+
+                    bool isEnabled = true;
+                    try { isEnabled = child.IsEnabled; } catch { }
+
+                    var uiElement = new UIElement
                     {
-                        X = (int)child.BoundingRectangle.X,
-                        Y = (int)child.BoundingRectangle.Y,
-                        Width = (int)child.BoundingRectangle.Width,
-                        Height = (int)child.BoundingRectangle.Height
+                        Id = elementId,
+                        Name = name,
+                        Type = type,
+                        Value = GetElementValue(child),
+                        IsEnabled = isEnabled,
+                        Bounds = new Models.Rectangle
+                        {
+                            X = (int)child.BoundingRectangle.X,
+                            Y = (int)child.BoundingRectangle.Y,
+                            Width = (int)child.BoundingRectangle.Width,
+                            Height = (int)child.BoundingRectangle.Height
+                        }
+                    };
+
+                    _elementCache[elementId] = child;
+
+                    if (IsSignificantElement(uiElement))
+                    {
+                        elements.Add(uiElement);
                     }
-                };
 
-                _elementCache[elementId] = child;
-
-                if (IsSignificantElement(uiElement))
-                {
-                    elements.Add(uiElement);
+                    ScanElements(child, elements, maxDepth, currentDepth + 1);
                 }
-
-                ScanElements(child, elements, maxDepth, currentDepth + 1);
+                catch (Exception ex)
+                {
+                    // Skip elements that throw exceptions during property access
+                    Console.WriteLine($"  ⚠️ Skipped element (property access error): {ex.Message}");
+                }
             }
         }
         catch { }
