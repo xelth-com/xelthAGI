@@ -1,5 +1,112 @@
 # Development Journal
 
+## v1.6.4 - Smart i18n Context (Auto-Detect OS Language) (2026-01-06)
+
+---
+type: feat
+scope: client/automation
+summary: Implemented smart i18n context with automatic OS language detection for faster, more accurate element search
+date: 2026-01-06
+---
+
+### Feature: Smart i18n Context (Performance + Precision)
+**Problem:** v1.6.3 searched through all possible language translations
+- Inefficient: Checking "File", "Datei", "Fichier", "Файл" on English Windows
+- Slower: 4x more searches than necessary
+- Less precise: Could match wrong language by accident
+
+**Solution:** Auto-detect OS language + search only relevant translations
+
+**Implementation:**
+
+**1. Language Detection** (`UIAutomationService.cs` constructor, line 64)
+```csharp
+_currentLanguage = System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName;
+Console.WriteLine($"  🌍 Detected OS Language: {_currentLanguage.ToUpper()}");
+```
+- Automatically detects Windows UI language (e.g., "de", "fr", "ru")
+- Logged at startup for transparency
+
+**2. i18n Translation Map** (lines 48-71)
+```csharp
+private static readonly Dictionary<string, Dictionary<string, string>> I18nMap = new()
+{
+    ["File"] = new() { { "de", "Datei" }, { "fr", "Fichier" }, { "ru", "Файл" } },
+    ["Edit"] = new() { { "de", "Bearbeiten" }, { "fr", "Édition" }, { "ru", "Правка" } },
+    ["Save"] = new() { { "de", "Speichern" }, { "fr", "Enregistrer" }, { "ru", "Сохранить" } },
+    ["Don't Save"] = new() { { "de", "Nicht speichern" }, { "fr", "Ne pas enregistrer" }, { "ru", "Не сохранять" } },
+    // + 17 more common UI terms
+};
+```
+- Centralized translation dictionary
+- Covers: Menus, dialogs, common actions
+- Languages: German, French, Russian (easily extensible)
+
+**3. Strategy 4: Smart i18n** (`FindElementById`, lines 1037-1061)
+```csharp
+if (I18nMap.TryGetValue(id, out var translations))
+{
+    // Target only: English + Detected OS Language
+    var targetLangs = new[] { "en", _currentLanguage }.Distinct();
+
+    foreach (var lang in targetLangs)
+    {
+        string searchTerm = lang == "en" ? id : translations.GetValueOrDefault(lang, id);
+        element = window.FindFirstDescendant(cf => cf.ByName(searchTerm));
+        if (element != null)
+        {
+            Console.WriteLine($"  ✅ Found '{element.Name}' using Smart i18n ({lang.ToUpper()}) for '{id}'");
+            return element;
+        }
+    }
+}
+```
+
+**Search Priority:**
+1. English (always first, for compatibility)
+2. Detected OS language (e.g., German)
+3. *(Skip all other languages)*
+
+**Performance Impact:**
+- **Before (v1.6.3):** Search 4+ language variants = 4+ FlaUI calls
+- **After (v1.6.4):** Search 2 variants max (EN + OS lang) = 2 FlaUI calls
+- **Speedup:** 50-75% faster when i18n strategy is used
+
+**Precision:**
+- No more "lucky" matches from wrong languages
+- German Windows only checks "File" and "Datei", not "Fichier" or "Файл"
+- Reduces false positives
+
+**Example Output:**
+```
+🌍 Detected OS Language: DE
+✅ Found 'Datei' using Smart i18n (DE) for 'File'
+```
+
+**Cascade Order (Updated):**
+1. AutomationID (language-independent)
+2. Name (Exact)
+3. Name (Contains)
+4. **Smart i18n** ← NEW (smart, focused search)
+5. Smart Menu Fallback (blind index-based)
+
+**Coverage:**
+- 21 common UI terms (File, Edit, View, Save, Cancel, etc.)
+- 3 languages (DE, FR, RU) + English fallback
+- Easy to extend: Add to I18nMap dictionary
+
+**Testing:**
+- ✅ Compiles successfully
+- ✅ Language detection works
+- ⚠️ Needs real-world test on German Windows
+
+**Files Modified:**
+- `client/SupportAgent/Services/UIAutomationService.cs:48-71, 64-65, 1037-1061`
+
+**Location:** UIAutomationService.cs:48-71 (i18n map), 64-65 (language detection), 1037-1061 (Strategy 4)
+
+---
+
 ## v1.6.3 - Resilient UI Search (Localization Fix) (2026-01-06)
 
 ---

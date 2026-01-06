@@ -43,10 +43,38 @@ public class UIAutomationService : IDisposable
     private const uint SWP_NOMOVE = 0x0002;
     private const uint SWP_SHOWWINDOW = 0x0040;
 
+    // i18n Translation Map for Smart Localization
+    // Maps English UI terms to their localized equivalents
+    private static readonly Dictionary<string, Dictionary<string, string>> I18nMap = new()
+    {
+        ["File"] = new() { { "de", "Datei" }, { "fr", "Fichier" }, { "ru", "Файл" } },
+        ["Edit"] = new() { { "de", "Bearbeiten" }, { "fr", "Édition" }, { "ru", "Правка" } },
+        ["View"] = new() { { "de", "Ansicht" }, { "fr", "Affichage" }, { "ru", "Вид" } },
+        ["Insert"] = new() { { "de", "Einfügen" }, { "fr", "Insertion" }, { "ru", "Вставка" } },
+        ["Format"] = new() { { "de", "Format" }, { "fr", "Format" }, { "ru", "Формат" } },
+        ["Tools"] = new() { { "de", "Extras" }, { "fr", "Outils" }, { "ru", "Сервис" } },
+        ["Help"] = new() { { "de", "Hilfe" }, { "fr", "Aide" }, { "ru", "Справка" } },
+        ["Save"] = new() { { "de", "Speichern" }, { "fr", "Enregistrer" }, { "ru", "Сохранить" } },
+        ["Don't Save"] = new() { { "de", "Nicht speichern" }, { "fr", "Ne pas enregistrer" }, { "ru", "Не сохранять" } },
+        ["Cancel"] = new() { { "de", "Abbrechen" }, { "fr", "Annuler" }, { "ru", "Отмена" } },
+        ["Open"] = new() { { "de", "Öffnen" }, { "fr", "Ouvrir" }, { "ru", "Открыть" } },
+        ["Close"] = new() { { "de", "Schließen" }, { "fr", "Fermer" }, { "ru", "Закрыть" } },
+        ["New"] = new() { { "de", "Neu" }, { "fr", "Nouveau" }, { "ru", "Создать" } },
+        ["Print"] = new() { { "de", "Drucken" }, { "fr", "Imprimer" }, { "ru", "Печать" } },
+        ["Copy"] = new() { { "de", "Kopieren" }, { "fr", "Copier" }, { "ru", "Копировать" } },
+        ["Paste"] = new() { { "de", "Einfügen" }, { "fr", "Coller" }, { "ru", "Вставить" } },
+        ["Cut"] = new() { { "de", "Ausschneiden" }, { "fr", "Couper" }, { "ru", "Вырезать" } },
+        ["Undo"] = new() { { "de", "Rückgängig" }, { "fr", "Annuler" }, { "ru", "Отменить" } },
+        ["Redo"] = new() { { "de", "Wiederholen" }, { "fr", "Rétablir" }, { "ru", "Повторить" } },
+        ["Find"] = new() { { "de", "Suchen" }, { "fr", "Rechercher" }, { "ru", "Найти" } },
+        ["Replace"] = new() { { "de", "Ersetzen" }, { "fr", "Remplacer" }, { "ru", "Заменить" } }
+    };
+
     private readonly UIA3Automation _automation;
     private Dictionary<string, AutomationElement> _elementCache = new();
     private readonly HttpClient _httpClient;
     private readonly SystemService _systemService;
+    private readonly string _currentLanguage; // Detected OS UI language (e.g., "de", "fr", "ru")
 
     public Window? CurrentWindow { get; private set; }
     private Window? _lastInteractedWindow;
@@ -58,6 +86,10 @@ public class UIAutomationService : IDisposable
         _automation = new UIA3Automation();
         _httpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(5) }; // Timeout for large files
         _systemService = new SystemService();
+
+        // Auto-detect OS language for smart i18n element search
+        _currentLanguage = System.Globalization.CultureInfo.CurrentUICulture.TwoLetterISOLanguageName;
+        Console.WriteLine($"  🌍 Detected OS Language: {_currentLanguage.ToUpper()}");
     }
 
     /// <summary>
@@ -1002,7 +1034,33 @@ public class UIAutomationService : IDisposable
         }
         catch { }
 
-        // Strategy 4: Smart Menu Fallback (index-based, works across all languages)
+        // Strategy 4: Smart i18n (Auto-detect OS language + English fallback)
+        // Only search in detected language + English, much faster than trying all translations
+        if (I18nMap.TryGetValue(id, out var translations))
+        {
+            // Target languages: English (default) + detected OS language
+            var targetLangs = new[] { "en", _currentLanguage }.Distinct();
+
+            foreach (var lang in targetLangs)
+            {
+                try
+                {
+                    // For English, use the original id; for others, get translation
+                    string searchTerm = lang == "en" ? id : translations.GetValueOrDefault(lang, id);
+
+                    element = window.FindFirstDescendant(cf => cf.ByName(searchTerm));
+                    if (element != null)
+                    {
+                        strategy = $"Smart i18n ({lang.ToUpper()})";
+                        Console.WriteLine($"  ✅ Found '{element.Name}' using {strategy} for '{id}'");
+                        return element;
+                    }
+                }
+                catch { }
+            }
+        }
+
+        // Strategy 5: Smart Menu Fallback (index-based, works across all languages)
         // Common menu keywords and their typical positions
         var menuFallbacks = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
         {
