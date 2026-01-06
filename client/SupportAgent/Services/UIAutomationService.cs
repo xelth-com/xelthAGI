@@ -148,9 +148,9 @@ public class UIAutomationService : IDisposable
 
         foreach (var window in windows)
         {
-            var title = window.Name ?? "";
             try
             {
+                var title = window.Name ?? "";
                 var processId = window.Properties.ProcessId.ValueOrDefault;
                 var process = System.Diagnostics.Process.GetProcessById(processId);
                 var processName = process.ProcessName;
