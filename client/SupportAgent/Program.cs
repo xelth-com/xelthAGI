@@ -850,7 +850,11 @@ class Program
       {
           // CRITICAL: Always cleanup TOPMOST flags on exit
           // This prevents windows from staying on top after agent shutdown/crash
-          automationService?.Dispose();
+          if (automationService != null)
+          {
+              Console.WriteLine("  🧹 Cleaning up resources...");
+              automationService.Dispose();
+          }
       }
     }
 

@@ -1196,21 +1196,40 @@ public class UIAutomationService : IDisposable
 
     public void Dispose()
     {
-        // CRITICAL: Remove TOPMOST flag from last interacted window on exit
+        // CRITICAL: Remove TOPMOST flag from current/last window on exit
         // This prevents windows from staying on top after agent shutdown
         try
         {
-            if (_lastInteractedWindow != null && !_lastInteractedWindow.Properties.IsOffscreen.ValueOrDefault)
+            // Try _lastInteractedWindow first (set by EnsureWindowFocus during click/type)
+            // Then fallback to CurrentWindow (set by SwitchWindow/FindWindow)
+            var windowToCleanup = _lastInteractedWindow ?? CurrentWindow;
+
+            if (windowToCleanup == null)
             {
-                var handle = _lastInteractedWindow.Properties.NativeWindowHandle.ValueOrDefault;
-                if (handle != IntPtr.Zero)
+                Console.WriteLine("  ⚠️  No window to cleanup");
+            }
+            else if (windowToCleanup.Properties.IsOffscreen.ValueOrDefault)
+            {
+                Console.WriteLine("  ⚠️  Last window is offscreen, skipping cleanup");
+            }
+            else
+            {
+                var handle = windowToCleanup.Properties.NativeWindowHandle.ValueOrDefault;
+                if (handle == IntPtr.Zero)
+                {
+                    Console.WriteLine("  ⚠️  Window handle is null, cannot cleanup");
+                }
+                else
                 {
                     SetWindowPos(handle, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
                     Console.WriteLine("  🧹 Cleaned up TOPMOST flag from last window");
                 }
             }
         }
-        catch { /* Ignore cleanup errors */ }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  ⚠️  Cleanup error: {ex.Message}");
+        }
 
         _automation?.Dispose();
         _httpClient?.Dispose();
