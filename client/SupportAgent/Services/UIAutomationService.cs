@@ -1111,7 +1111,7 @@ public class UIAutomationService : IDisposable
             { "Edit", 1 },     { "Bearbeiten", 1 }, { "Édition", 1 }, { "Правка", 1 },
             { "View", 2 },     { "Ansicht", 2 },  { "Affichage", 2 }, { "Вид", 2 },
             { "Insert", 3 },   { "Einfügen", 3 }, { "Insertion", 3 }, { "Вставка", 3 },
-            { "Format", 4 },   { "Format", 4 },   { "Format", 4 },   { "Формат", 4 },
+            { "Format", 4 },   { "Формат", 4 },
             { "Tools", 5 },    { "Extras", 5 },   { "Outils", 5 },   { "Сервис", 5 },
             { "Help", 6 },     { "Hilfe", 6 },    { "Aide", 6 },     { "Справка", 6 }
         };

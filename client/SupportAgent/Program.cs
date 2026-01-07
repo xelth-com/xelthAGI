@@ -569,6 +569,21 @@ class Program
                 {
                     var cmd = response.Command;
 
+                    // [FIX] Coordinate Scaling: Map LLM coordinates (low-res) back to physical screen (high-res)
+                    // When vision is used, screenshots are scaled down (e.g., 1920x1080 -> 1280x720)
+                    // LLM returns coordinates based on the scaled image, we must scale them back up
+                    if (currentScaleFactor > 0 && currentScaleFactor < 0.99 && (cmd.X > 0 || cmd.Y > 0))
+                    {
+                        int oldX = cmd.X;
+                        int oldY = cmd.Y;
+                        cmd.X = (int)(oldX / currentScaleFactor);
+                        cmd.Y = (int)(oldY / currentScaleFactor);
+
+                        Console.ForegroundColor = ConsoleColor.Cyan;
+                        Console.WriteLine($"  📐 Scaling Fix: [{oldX},{oldY}] -> [{cmd.X},{cmd.Y}] (Factor: {currentScaleFactor:F3})");
+                        Console.ResetColor();
+                    }
+
                     // --- REMOTE SHUTDOWN HANDLER ---
                     if (cmd.Action.ToLower() == "shutdown")
                     {
