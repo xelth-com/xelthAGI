@@ -1,17 +1,35 @@
+using Newtonsoft.Json;
+
 namespace SupportAgent.Models;
 
 public class Command
 {
+    [JsonProperty("action")]
     public string Action { get; set; } = string.Empty;
+
+    [JsonProperty("element_id")]
     public string ElementId { get; set; } = string.Empty;
+
+    [JsonProperty("text")]
     public string Text { get; set; } = string.Empty;
+
+    [JsonProperty("x")]
     public int X { get; set; }
+
+    [JsonProperty("y")]
     public int Y { get; set; }
+
+    [JsonProperty("delay_ms")]
     public int DelayMs { get; set; } = 100;
-    public string Message { get; set; } = string.Empty; // Для вывода пользователю
+
+    [JsonProperty("message")]
+    public string Message { get; set; } = string.Empty;
 
     // For 'download' action
+    [JsonProperty("url")]
     public string Url { get; set; } = string.Empty;
+
+    [JsonProperty("local_filename")]
     public string LocalFileName { get; set; } = string.Empty;
 }
 

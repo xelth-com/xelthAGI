@@ -357,14 +357,16 @@ app.post('/DECIDE', async (req, res) => {
             Action: decision.action || "",
             ElementId: decision.element_id || "",
             Text: decision.text || "",
-            X: 0, Y: 0,
+            X: decision.x || 0,
+            Y: decision.y || 0,
             DelayMs: decision.delay_ms || 100,
             Message: decision.message || ""
         };
 
         const reasoning = decision.reasoning || "No reasoning provided";
         console.log(`🤖 Decision: ${reasoning}`);
-        console.log(`📤 Command: ${command.Action} on ${command.ElementId}`);
+        const coordInfo = (command.X > 0 || command.Y > 0) ? ` @(${command.X},${command.Y})` : '';
+        console.log(`📤 Command: ${command.Action} on ${command.ElementId}${coordInfo}`);
 
         // Get the TRUE identity from the token
         const canonicalId = req.authClient.id;

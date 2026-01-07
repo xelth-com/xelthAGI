@@ -741,15 +741,33 @@ public class UIAutomationService : IDisposable
 
     private bool ClickElement(Window window, string elementId, int x = 0, int y = 0)
     {
+        // Priority 1: If coordinates are provided, use them directly (for visual/legacy windows)
+        if (x > 0 && y > 0 && string.IsNullOrEmpty(elementId))
+        {
+            try
+            {
+                FlaUI.Core.Input.Mouse.Click(new System.Drawing.Point(x, y));
+                Console.WriteLine($"  ✅ Clicked SCREEN coordinates ({x}, {y})");
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"  ❌ Coordinate click failed: {ex.Message}");
+                return false;
+            }
+        }
+
+        // Priority 2: Try to find element by ID
         var element = FindElementById(window, elementId);
         if (element == null)
         {
+            // Fallback: If element not found but coordinates exist, use coordinates
             if (x > 0 && y > 0)
             {
                 try
                 {
                     FlaUI.Core.Input.Mouse.Click(new System.Drawing.Point(x, y));
-                    Console.WriteLine($"  ✅ Clicked coordinates ({x}, {y})");
+                    Console.WriteLine($"  ✅ Clicked fallback coordinates ({x}, {y})");
                     return true;
                 }
                 catch { return false; }
@@ -1024,6 +1042,12 @@ public class UIAutomationService : IDisposable
     /// </summary>
     private AutomationElement? FindElementById(Window window, string id)
     {
+        // Early return for empty/null ID (caller wants to use coordinates)
+        if (string.IsNullOrEmpty(id))
+        {
+            return null;
+        }
+
         // Check cache first
         if (_elementCache.TryGetValue(id, out var cachedElement))
         {
