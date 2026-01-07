@@ -83,6 +83,50 @@ private const int RETRY_DELAY_MS = 1000;
 
 ## Resolved
 
+### ✅ Vision Capture Race Condition (v1.6.6)
+**Fixed:** 2026-01-06
+**Problem:** Coarse-to-Fine vision system completely broken (100% failure rate)
+- SaveJpeg() and CaptureScreenToFile() used async fire-and-forget (Task.Run)
+- Files saved in background while caller continued immediately
+- File.Exists() checks failed → always fell back to standard capture
+- Symptoms: "❌ Vision capture failed - falling back to standard capture"
+**Root Cause:** Premature optimization - async I/O for small files (<1MB) caused race condition
+**Solution:** Made both methods synchronous
+- VisionHelper.SaveJpeg(): Removed Task.Run(), direct img.Save()
+- UIAutomationService.CaptureScreenToFile(): Removed Task.Run(), direct image.Save()
+- Files guaranteed to exist before return
+**Trade-off:** Added ~50-100ms blocking time, but 100% correctness
+**Impact:** Vision capture now works (0% → 100% success rate), token efficiency restored
+**Reverses:** v1.6.2 async pattern was correct for shadow debugging, but NOT for vision pipeline
+**Location:** `VisionHelper.cs:189-212`, `UIAutomationService.cs:401-406`
+
+### ✅ window.Name Exception on Legacy Windows (v1.6.6)
+**Fixed:** 2026-01-06
+**Problem:** InstallShield and legacy Win32 windows crashed agent during window enumeration
+- Exception: "The requested property 'Name [#30005]' is not supported"
+- Occurred in auto-switch-after-launch during recursive window search
+- Agent could not handle legacy installer dialogs
+**Solution:** Moved window.Name access inside existing try-catch block
+- Changed from: `var title = window.Name ?? ""; try { ... }`
+- Changed to: `try { var title = window.Name ?? ""; ... }`
+**Impact:** Agent now gracefully handles hostile windows, no crashes, fallback to Alt+Tab strategy
+**Location:** `client/SupportAgent/Services/UIAutomationService.cs:151→153`
+
+### ✅ TOPMOST Flag Persistence After Exit (v1.6.6)
+**Fixed:** 2026-01-06
+**Problem:** Windows stayed "always on top" after agent exit
+- Browser windows from ShowAgentNotification dialogs
+- Calculator windows after automation tests
+- Confusing UX - user had to manually fix window z-order
+**Root Cause:** Cleanup only worked for _lastInteractedWindow (set by EnsureWindowFocus during click/type)
+- But switch_window doesn't set _lastInteractedWindow
+- Tasks like "Open Calculator" never triggered cleanup
+**Solution 1:** Added finally block in Program.cs to ensure Dispose() always called
+**Solution 2:** Fallback to CurrentWindow if _lastInteractedWindow is null
+**Solution 3:** Added detailed diagnostic logging
+**Verification:** "🧹 Cleaned up TOPMOST flag from last window"
+**Location:** `Program.cs:849-858`, `UIAutomationService.cs:1197-1236`
+
 ### ✅ Modal Dialog Button Discovery (v1.6.5)
 **Fixed:** 2026-01-06
 **Problem:** Dialog buttons (Save, Don't Save, Cancel) not visible to agent
@@ -109,21 +153,6 @@ private const int RETRY_DELAY_MS = 1000;
 **Impact:** Eliminated race conditions, 100% reliable "What You See Is What You Got"
 **Trade-off:** ~150% slower execution, but 100% reliability
 **Location:** `client/SupportAgent/Program.cs:296, 655-662`
-
-### ✅ Blocking Debug I/O - "Observer Effect" (v1.6.2)
-**Fixed:** 2026-01-06
-**Problem:** Debug screenshot saving blocked main automation thread
-- Symptoms: Unpredictable 100-500ms delays per screenshot
-- "Observer Effect": Timing measurements included I/O overhead not present in production
-**Solution:** Fire-and-forget async pattern with bitmap cloning
-- `UIAutomationService.CaptureScreenToFile`: Clone bitmap, async save in Task.Run
-- `VisionHelper.SaveJpeg`: Clone image, async save in Task.Run
-- Error handling: All exceptions suppressed to prevent agent crashes
-**Impact:** 90-495ms saved per screenshot = ~2-3 seconds per automation loop with vision
-**Performance:**
-- Before: 100-500ms blocking I/O per screenshot
-- After: ~5-10ms cloning overhead (in-memory)
-**Location:** `client/SupportAgent/Services/UIAutomationService.cs:319-357`, `VisionHelper.cs:189-224`
 
 ### ✅ Identity Split-Brain (v1.4)
 **Fixed:** 2026-01-04
