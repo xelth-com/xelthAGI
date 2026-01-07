@@ -56,12 +56,13 @@ public static class VisionHelper
     }
 
     /// <summary>
-    /// Creates a low-resolution overview of an image for token-efficient vision.
+    /// Creates a low-resolution SQUARE overview of an image for token-efficient vision.
+    /// Adds padding to make the image square while preserving original content at 0,0.
     /// Returns the scale factor used for resizing.
     /// </summary>
     /// <param name="originalPath">Path to the original high-res image</param>
     /// <param name="outputPath">Path where the low-res image will be saved</param>
-    /// <param name="targetLongSide">Target size for the longest side (default: 1280px)</param>
+    /// <param name="targetLongSide">Target size for the square side (default: 1280px)</param>
     /// <returns>Scale factor (e.g., 0.5 means image was scaled down by 50%)</returns>
     public static double CreateLowResOverview(string originalPath, string outputPath, int targetLongSide = 1280)
     {
@@ -72,42 +73,51 @@ public static class VisionHelper
 
         using (var original = Image.FromFile(originalPath))
         {
-            // Calculate scale factor
+            // Step 1: Determine the square size (max of width/height)
+            int squareSize = Math.Max(original.Width, original.Height);
+
+            // Step 2: Calculate scale factor to fit into targetLongSide
             double scaleFactor = 1.0;
-            int maxSide = Math.Max(original.Width, original.Height);
-
-            if (maxSide > targetLongSide)
+            if (squareSize > targetLongSide)
             {
-                scaleFactor = (double)targetLongSide / maxSide;
-            }
-            else
-            {
-                // Image is already small enough, just copy it
-                File.Copy(originalPath, outputPath, overwrite: true);
-                Console.WriteLine($"  [Vision] Image already small ({original.Width}x{original.Height}), no resize needed");
-                return 1.0;
+                scaleFactor = (double)targetLongSide / squareSize;
             }
 
-            int newW = (int)(original.Width * scaleFactor);
-            int newH = (int)(original.Height * scaleFactor);
+            // Scaled dimensions of original content
+            int scaledW = (int)(original.Width * scaleFactor);
+            int scaledH = (int)(original.Height * scaleFactor);
 
-            // Create high-quality resized image
-            using (var resized = new Bitmap(newW, newH))
-            using (var g = Graphics.FromImage(resized))
+            // Final square size
+            int finalSize = (int)(squareSize * scaleFactor);
+
+            // Create square image with padding
+            using (var squareImage = new Bitmap(finalSize, finalSize))
+            using (var g = Graphics.FromImage(squareImage))
             {
+                // Fill with dark gray (not pure black, to distinguish from content)
+                g.Clear(Color.FromArgb(32, 32, 32));
+
                 // High-quality settings for text readability
                 g.InterpolationMode = InterpolationMode.HighQualityBicubic;
                 g.SmoothingMode = SmoothingMode.HighQuality;
                 g.PixelOffsetMode = PixelOffsetMode.HighQuality;
                 g.CompositingQuality = CompositingQuality.HighQuality;
 
-                g.DrawImage(original, 0, 0, newW, newH);
+                // Draw original content at 0,0 (top-left, no offset!)
+                // This preserves coordinate system - 0,0 is always top-left of real content
+                g.DrawImage(original, 0, 0, scaledW, scaledH);
 
-                // Save with JPEG quality 85 (balance between size and clarity)
-                SaveJpeg(resized, outputPath, 85L);
+                // Save with JPEG quality 85
+                SaveJpeg(squareImage, outputPath, 85L);
             }
 
-            Console.WriteLine($"  [Vision] Resized {original.Width}x{original.Height} → {newW}x{newH} (scale: {scaleFactor:F4})");
+            // Log the transformation
+            string paddingInfo = original.Width > original.Height
+                ? $"bottom padding {finalSize - scaledH}px"
+                : $"right padding {finalSize - scaledW}px";
+
+            Console.WriteLine($"  [Vision] {original.Width}x{original.Height} → {finalSize}x{finalSize} square ({paddingInfo}, scale: {scaleFactor:F4})");
+
             return scaleFactor;
         }
     }

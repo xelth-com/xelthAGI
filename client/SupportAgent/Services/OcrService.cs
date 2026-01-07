@@ -88,9 +88,10 @@ public class OcrService
             }
 
             var sb = new StringBuilder();
-            sb.AppendLine($"OCR_RESULT ({result.Lines.Count} lines found):");
+            sb.AppendLine($"OCR_CLICKABLE_TARGETS ({result.Lines.Count} items):");
+            sb.AppendLine("To click on text, use the click(x,y) coordinates below:");
+            sb.AppendLine();
 
-            // Format: "Word" @(CenterX,CenterY)
             foreach (var line in result.Lines)
             {
                 if (line.Words.Count == 0) continue;
@@ -108,15 +109,23 @@ public class OcrService
                     if (r.Y + r.Height > maxY) maxY = r.Y + r.Height;
                 }
 
+                // Center coordinates (for clicking)
                 int cx = (int)(minX + (maxX - minX) / 2);
                 int cy = (int)(minY + (maxY - minY) / 2);
+
+                // Bounding box (top-left and bottom-right)
+                int x1 = (int)minX;
+                int y1 = (int)minY;
+                int x2 = (int)maxX;
+                int y2 = (int)maxY;
 
                 // Clean text for display
                 string cleanText = line.Text.Replace("\n", " ").Replace("\r", " ").Trim();
 
                 if (!string.IsNullOrWhiteSpace(cleanText))
                 {
-                    sb.AppendLine($" - \"{cleanText}\" @({cx},{cy})");
+                    // Format: "text" → click(cx,cy) | bounds(x1,y1,x2,y2)
+                    sb.AppendLine($"- \"{cleanText}\" → click({cx},{cy}) | bounds({x1},{y1},{x2},{y2})");
                 }
             }
 
