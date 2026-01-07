@@ -335,6 +335,11 @@ class Program
                             lowResPath,
                             targetLongSide: 1280); // 1280px for balance between detail and tokens
 
+                        // NOTE: UI element coordinates remain in SCREEN space (not scaled)
+                        // LLM should use element coordinates directly for clickable elements
+                        // Visual estimation from scaled screenshot may have offset - this is expected
+                        // The scaling logic in execution phase handles visual-only coordinates
+
                         // STEP 3: Convert low-res to Base64 for transmission
                         uiState.Screenshot = VisionHelper.ImageToBase64(lowResPath);
 
@@ -569,10 +574,12 @@ class Program
                 {
                     var cmd = response.Command;
 
-                    // [FIX] Coordinate Scaling: Map LLM coordinates (low-res) back to physical screen (high-res)
-                    // When vision is used, screenshots are scaled down (e.g., 1920x1080 -> 1280x720)
-                    // LLM returns coordinates based on the scaled image, we must scale them back up
-                    if (currentScaleFactor > 0 && currentScaleFactor < 0.99 && (cmd.X > 0 || cmd.Y > 0))
+                    // SMART Coordinate Scaling:
+                    // - If elementId is EMPTY and coordinates are provided → visual estimation → SCALE UP
+                    // - If elementId is provided → UI element coords (real screen space) → NO scale
+                    bool isVisualEstimation = string.IsNullOrEmpty(cmd.ElementId) && (cmd.X > 0 || cmd.Y > 0);
+
+                    if (isVisualEstimation && currentScaleFactor > 0 && currentScaleFactor < 0.99)
                     {
                         int oldX = cmd.X;
                         int oldY = cmd.Y;
@@ -580,7 +587,13 @@ class Program
                         cmd.Y = (int)(oldY / currentScaleFactor);
 
                         Console.ForegroundColor = ConsoleColor.Cyan;
-                        Console.WriteLine($"  📐 Scaling Fix: [{oldX},{oldY}] -> [{cmd.X},{cmd.Y}] (Factor: {currentScaleFactor:F3})");
+                        Console.WriteLine($"  📐 Visual estimation scaling: [{oldX},{oldY}] -> [{cmd.X},{cmd.Y}] (Factor: {currentScaleFactor:F3})");
+                        Console.ResetColor();
+                    }
+                    else if (cmd.X > 0 || cmd.Y > 0)
+                    {
+                        Console.ForegroundColor = ConsoleColor.DarkCyan;
+                        Console.WriteLine($"  📍 Element coordinates (no scaling): [{cmd.X},{cmd.Y}]");
                         Console.ResetColor();
                     }
 
