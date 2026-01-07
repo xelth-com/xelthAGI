@@ -137,8 +137,11 @@ public class SystemService
             {
                 FileName = executablePath,
                 Arguments = arguments,
-                UseShellExecute = false,
-                CreateNoWindow = false
+                // UseShellExecute=true is REQUIRED for:
+                // 1. UAC elevation (installers with admin rights)
+                // 2. PATH resolution (powershell.exe, cmd.exe etc.)
+                // 3. File associations (.exe, .msi, .bat)
+                UseShellExecute = true
             };
 
             var process = Process.Start(processStartInfo);
@@ -148,25 +151,15 @@ public class SystemService
                 return $"ERROR: Failed to start process: {executablePath}";
             }
 
-            // Give process 30 seconds to start responding (optional safety check)
-            // This prevents hanging on processes that fail to initialize
-            if (!process.WaitForInputIdle(30000))
-            {
-                // Process didn't become responsive, but that's ok for background processes
-                // Just log it and continue
-            }
+            // With UseShellExecute=true, we can't use WaitForInputIdle
+            // Instead, give the process a moment to start
+            Thread.Sleep(500);
 
             return $"✅ Started process: {executablePath} (PID: {process.Id})";
         }
         catch (System.ComponentModel.Win32Exception ex)
         {
             return $"ERROR: Cannot execute - {ex.Message}";
-        }
-        catch (InvalidOperationException)
-        {
-            // WaitForInputIdle failed (expected for console apps)
-            // Return success anyway since process started
-            return $"✅ Started process (console/background): {executablePath}";
         }
         catch (Exception ex)
         {
