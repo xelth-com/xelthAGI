@@ -184,43 +184,31 @@ public static class VisionHelper
 
     /// <summary>
     /// Helper to save JPEG with specific quality setting
-    /// ASYNC: Uses fire-and-forget pattern to avoid blocking main thread on disk I/O
+    /// SYNCHRONOUS: Blocks until file is written to ensure it exists before caller continues
     /// </summary>
     private static void SaveJpeg(Image img, string path, long quality)
     {
-        // CRITICAL: Clone image before passing to background thread
-        // Original will be disposed by caller's using block
-        Image imgCopy = (Image)img.Clone();
-
-        // Fire-and-forget async save (non-blocking)
-        Task.Run(() =>
+        try
         {
-            try
+            var jpegEncoder = GetEncoder(ImageFormat.Jpeg);
+            if (jpegEncoder == null)
             {
-                var jpegEncoder = GetEncoder(ImageFormat.Jpeg);
-                if (jpegEncoder == null)
-                {
-                    // Fallback: save without quality parameter
-                    imgCopy.Save(path, ImageFormat.Jpeg);
-                }
-                else
-                {
-                    var encoderParameters = new EncoderParameters(1);
-                    encoderParameters.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, quality);
-                    imgCopy.Save(path, jpegEncoder, encoderParameters);
-                }
+                // Fallback: save without quality parameter
+                img.Save(path, ImageFormat.Jpeg);
             }
-            catch (Exception ex)
+            else
             {
-                // Suppress I/O errors to avoid crashing agent on disk issues
-                Console.WriteLine($"  ⚠️ [Async] JPEG save failed ({path}): {ex.Message}");
+                var encoderParameters = new EncoderParameters(1);
+                encoderParameters.Param[0] = new EncoderParameter(System.Drawing.Imaging.Encoder.Quality, quality);
+                img.Save(path, jpegEncoder, encoderParameters);
             }
-            finally
-            {
-                // Always dispose the clone in background thread
-                imgCopy.Dispose();
-            }
-        });
+        }
+        catch (Exception ex)
+        {
+            // Log error but allow caller to handle
+            Console.WriteLine($"  ⚠️ JPEG save failed ({path}): {ex.Message}");
+            throw; // Rethrow so caller knows save failed
+        }
     }
 
     /// <summary>

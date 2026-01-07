@@ -398,29 +398,10 @@ public class UIAutomationService : IDisposable
             var desktop = _automation.GetDesktop();
             using var image = FlaUI.Core.Capturing.Capture.Element(desktop).Bitmap;
 
-            // CRITICAL: Clone bitmap before passing to background thread
-            // Original bitmap will be disposed, so we need an independent copy
-            Bitmap imageCopy = (Bitmap)image.Clone();
-
-            // Fire-and-forget async save (non-blocking)
-            Task.Run(() =>
-            {
-                try
-                {
-                    imageCopy.Save(filePath, ImageFormat.Png);
-                    Console.WriteLine($"  📷 [Async] Screenshot saved to: {filePath}");
-                }
-                catch (Exception ex)
-                {
-                    // Suppress I/O errors to avoid crashing agent on disk issues
-                    Console.WriteLine($"  ⚠️ [Async] Screenshot save failed: {ex.Message}");
-                }
-                finally
-                {
-                    // Always dispose the clone in background thread
-                    imageCopy.Dispose();
-                }
-            });
+            // CRITICAL: Save synchronously to ensure file exists before caller continues
+            // Coarse-to-Fine vision depends on this file being ready immediately
+            image.Save(filePath, ImageFormat.Png);
+            Console.WriteLine($"  📷 Screenshot saved to: {filePath}");
 
             return true;
         }
