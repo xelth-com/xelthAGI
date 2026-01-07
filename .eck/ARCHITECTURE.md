@@ -332,6 +332,99 @@ VisionHelper.CreateHighResCrop(
 - Instructs LLM to trust visual coordinates when tree is incomplete
 - Falls back to visual clicking with estimated coordinates
 
+### 8. Square Padding for Vision (Coordinate Accuracy)
+**Problem:** Rectangle screenshots caused poor LLM vertical coordinate estimation (~300px error on 1536x864 screens).
+
+**Solution:**
+```csharp
+// VisionHelper.CreateLowResOverview():
+// 1. Calculate square size (max of width/height)
+int squareSize = Math.Max(original.Width, original.Height);
+
+// 2. Scale down to target (1280px)
+double scaleFactor = (double)targetLongSide / squareSize;
+
+// 3. Create square canvas with padding
+using (var squareImage = new Bitmap(finalSize, finalSize))
+{
+    g.Clear(Color.FromArgb(32, 32, 32)); // Dark gray padding
+    g.DrawImage(original, 0, 0, scaledW, scaledH); // Content at 0,0!
+}
+```
+
+**Coordinate Preservation:**
+```
+┌─────────────────────────┐
+│  Real screen content    │  ← 0,0 always top-left of content
+│  1280 x 720             │
+├─────────────────────────┤
+│▓▓▓▓ dark gray padding ▓▓│  ← bottom/right padding
+└─────────────────────────┘
+     1280 x 1280 (square)
+```
+
+**Benefits:**
+- **12x accuracy improvement** (300px → 24px error)
+- LLM better spatial reasoning with square images
+- Coordinates 0,0 preserved (no offset calculations needed)
+- No content distortion (padding, not stretching)
+
+**Smart Scaling (Program.cs):**
+```csharp
+// Only scale coordinates when elementId is empty (visual estimation)
+bool isVisualEstimation = string.IsNullOrEmpty(cmd.ElementId) && (cmd.X > 0 || cmd.Y > 0);
+if (isVisualEstimation && currentScaleFactor > 0) {
+    cmd.X = (int)(cmd.X / currentScaleFactor); // Scale up to screen
+    cmd.Y = (int)(cmd.Y / currentScaleFactor);
+}
+// Element-based coordinates remain in screen space (no scaling)
+```
+
+**Implementation:**
+- `VisionHelper.cs:67-123` - Square padding with preserved origin
+- `Program.cs:531-554` - Smart coordinate scaling logic
+- `UIAutomationService.cs:727-767` - Priority: coordinates > elements when ID empty
+
+### 9. Enhanced OCR with Actionable Coordinates
+**Problem:** OCR only provided center coordinates - no bounding boxes for precise targeting.
+
+**Solution:**
+```csharp
+// OcrService.GetTextFromScreen():
+foreach (var line in result.Lines) {
+    // Calculate bounding box
+    int x1 = (int)minX, y1 = (int)minY;
+    int x2 = (int)maxX, y2 = (int)maxY;
+
+    // Center for clicking
+    int cx = (int)(minX + (maxX - minX) / 2);
+    int cy = (int)(minY + (maxY - minY) / 2);
+
+    // Output: "text" → click(cx,cy) | bounds(x1,y1,x2,y2)
+    sb.AppendLine($"- \"{cleanText}\" → click({cx},{cy}) | bounds({x1},{y1},{x2},{y2})");
+}
+```
+
+**Output Format:**
+```
+OCR_CLICKABLE_TARGETS (15 items):
+To click on text, use the click(x,y) coordinates below:
+
+- "Datei" → click(45,41) | bounds(10,30,80,52)
+- "Bearbeiten" → click(102,41) | bounds(75,30,129,52)
+- "Speichern" → click(850,620) | bounds(800,600,900,640)
+```
+
+**Benefits:**
+- LLM can click text directly using provided coordinates
+- Bounding boxes enable precise targeting
+- No visual estimation needed for text elements
+- Works on scaled images (coordinates in scaled space)
+
+**Implementation:**
+- `OcrService.cs:90-132` - Enhanced output format
+- Coordinates are in scaled image space (match screenshot dimensions)
+
 ## Extensibility Points
 
 1. **New Commands**: Add to `ExecuteCommand` switch in UIAutomationService

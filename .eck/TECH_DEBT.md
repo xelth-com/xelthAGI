@@ -2,16 +2,7 @@
 
 ## High Priority
 
-### 9. Server-Side Support for zoom_in Command
-**Status:** DISCOVERED 2026-01-05
-**Location:** `server/src/llmService.js`
-**Issue:** Client now supports `zoom_in` command for coarse-to-fine vision, but server prompt doesn't teach LLM about this action
-**Impact:** LLM cannot request zoom, making the coarse-to-fine vision system partially unusable
-**Fix Required:**
-- Add `zoom_in` to available actions in LLM prompt
-- Document command format: `{ action: "zoom_in", x: <int>, y: <int>, element_id: "<width>", text: "<height>" }`
-- Add example usage to prompt (e.g., "If text is too small to read, use zoom_in")
-**Priority:** High - new feature incomplete without this
+*(None currently)*
 
 ## Medium Priority
 
@@ -82,6 +73,17 @@ private const int RETRY_DELAY_MS = 1000;
 **Recommendation:** Use xUnit or NUnit framework
 
 ## Resolved
+
+### ✅ zoom_in Command Implementation (v1.6.7)
+**Resolved:** 2026-01-07
+**Original Issue:** Client supported `zoom_in` but server didn't teach LLM about it
+**Resolution:** NOT NEEDED - Square padding + coordinate fixes achieved 12x accuracy improvement
+**Details:**
+- Square padding improved LLM spatial reasoning (rectangle → square)
+- Coordinate accuracy improved from ~300px error to ~24px error
+- Enhanced OCR now provides clickable text coordinates
+- zoom_in would add complexity without significant benefit
+**Decision:** Feature removed from roadmap, coordinate accuracy sufficient for production use
 
 ### ✅ Vision Capture Race Condition (v1.6.6)
 **Fixed:** 2026-01-06

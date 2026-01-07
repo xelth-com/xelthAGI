@@ -1,5 +1,127 @@
 # Development Journal
 
+## v1.6.7 - Vision Coordinate Accuracy Overhaul (2026-01-07)
+
+---
+type: feat, fix
+scope: client/vision, server/coordinates
+summary: Major improvements to visual coordinate accuracy - 12x better precision
+date: 2026-01-07
+---
+
+### Problem Statement
+Visual coordinate clicks were consistently missing targets by ~300 pixels. Testing on Paint with a circle target revealed systematic Y-coordinate errors.
+
+### Root Causes Identified
+
+1. **Server hardcoded X,Y to 0** - LLM coordinates never reached client
+2. **JSON property mismatch** - lowercase `x,y` from server vs PascalCase `X,Y` in C#
+3. **ClickElement logic** - tried to find element even with empty ID
+4. **Rectangle images** - LLM struggled with non-square aspect ratios
+5. **OCR format** - coordinates not actionable for clicking
+
+### Solutions Implemented
+
+#### 1. Server Coordinate Extraction (index.js)
+```javascript
+// BEFORE: Hardcoded
+X: 0, Y: 0,
+
+// AFTER: Extract from LLM response
+X: decision.x || 0,
+Y: decision.y || 0,
+```
+
+#### 2. JSON Property Mapping (Command.cs)
+```csharp
+[JsonProperty("x")]
+public int X { get; set; }
+
+[JsonProperty("y")]
+public int Y { get; set; }
+```
+
+#### 3. Smart Coordinate Scaling (Program.cs)
+```csharp
+// Only scale when elementId is EMPTY (visual estimation)
+bool isVisualEstimation = string.IsNullOrEmpty(cmd.ElementId) && (cmd.X > 0 || cmd.Y > 0);
+
+if (isVisualEstimation && currentScaleFactor > 0 && currentScaleFactor < 0.99)
+{
+    cmd.X = (int)(oldX / currentScaleFactor);
+    cmd.Y = (int)(oldY / currentScaleFactor);
+}
+// Element-based coordinates remain in screen space (no scaling)
+```
+
+#### 4. Square Padding for Vision (VisionHelper.cs)
+```
+BEFORE: 1536x864 → 1280x720 (rectangle)
+        LLM had poor vertical estimation
+
+AFTER:  1536x864 → 1280x1280 (square with padding)
+        ┌─────────────────────────┐
+        │  Real screen content    │  ← 0,0 preserved!
+        │  1280 x 720             │
+        ├─────────────────────────┤
+        │▓▓▓▓ dark gray padding ▓▓│  ← 560px bottom
+        └─────────────────────────┘
+```
+- Coordinates 0,0 always top-left of real content (no offset!)
+- LLM spatial reasoning improved with square images
+
+#### 5. Enhanced OCR Output (OcrService.cs)
+```
+BEFORE: - "Datei" @(45, 41)
+
+AFTER:  - "Datei" → click(45,41) | bounds(10,30,80,52)
+```
+- Center coordinates for clicking
+- Bounding box for precise targeting
+
+#### 6. UseShellExecute for Process Launch (SystemService.cs)
+```csharp
+UseShellExecute = true  // Required for:
+// 1. UAC elevation (installers)
+// 2. PATH resolution (powershell.exe)
+// 3. File associations (.exe, .msi)
+```
+
+#### 7. ClickElement Priority Fix (UIAutomationService.cs)
+```csharp
+// Priority 1: If coordinates provided AND elementId empty → use screen coords
+// Priority 2: Find element by ID
+// Priority 3: Fallback to coordinates if element not found
+```
+
+### Test Results (Paint Circle Target)
+```
+BEFORE: Error ~300px (clicks missed circle entirely)
+AFTER:  Error ~24px (clicks land inside/near circle)
+
+Improvement: 12x better accuracy!
+```
+
+### Files Modified
+- `server/src/index.js` - X,Y extraction from LLM
+- `client/SupportAgent/Models/Command.cs` - JsonProperty attributes
+- `client/SupportAgent/Program.cs` - Smart coordinate scaling
+- `client/SupportAgent/Services/VisionHelper.cs` - Square padding
+- `client/SupportAgent/Services/OcrService.cs` - Enhanced output format
+- `client/SupportAgent/Services/SystemService.cs` - UseShellExecute
+- `client/SupportAgent/Services/UIAutomationService.cs` - ClickElement priority, duplicate key fix
+
+### Commits
+```
+e3e395d feat(client): OCR with bounds + square padding for vision
+db3e29a feat(client): add smart coordinate scaling for visual estimation
+d1aded4 fix: coordinate click support
+a2dea07 fix(client): coordinate scaling + Format duplicate key
+9bd1165 fix(client): enable UseShellExecute for UAC and PATH resolution
+```
+
+---
+
 ## v1.6.6 - Vision Capture Fix & Stability (2026-01-06)
 
 ---
